@@ -4,13 +4,13 @@ import { resolveStatusIconSource } from '../status-icon'
 describe('resolveStatusIconSource', () => {
   it('treats bare icon filenames as local overrides in statuses/icons', () => {
     expect(resolveStatusIconSource('todo', 'in-progress.svg')).toEqual({
-      iconPath: 'statuses/icons/in-progress.svg',
+      iconPath: '.craft-agent/statuses/icons/in-progress.svg',
     })
   })
 
   it('treats .webp filenames as local overrides', () => {
     expect(resolveStatusIconSource('todo', 'custom-icon.webp')).toEqual({
-      iconPath: 'statuses/icons/custom-icon.webp',
+      iconPath: '.craft-agent/statuses/icons/custom-icon.webp',
     })
   })
 
