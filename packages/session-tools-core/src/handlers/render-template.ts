@@ -13,6 +13,11 @@ import { renderMustache } from '../templates/mustache.ts';
 import { join } from 'node:path';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 
+// Workspace namespace for Craft-owned workspace-local metadata.
+// Must stay in sync with WORKSPACE_NAMESPACE in
+// packages/shared/src/workspaces/storage.ts (this package cannot import shared).
+const WORKSPACE_NAMESPACE = '.craft-agent';
+
 export interface RenderTemplateArgs {
   source: string;
   template: string;
@@ -36,7 +41,7 @@ export async function handleRenderTemplate(
     return errorResponse('render_template requires dataPath in context.');
   }
 
-  const sourcePath = join(ctx.workspacePath, 'sources', args.source);
+  const sourcePath = join(ctx.workspacePath, WORKSPACE_NAMESPACE, 'sources', args.source);
 
   // Validate source exists
   if (!existsSync(sourcePath)) {

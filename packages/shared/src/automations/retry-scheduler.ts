@@ -17,6 +17,7 @@ import { join } from 'path';
 import { createLogger } from '../utils/debug.ts';
 import { executeWebhookRequest, createWebhookHistoryEntry } from './webhook-utils.ts';
 import { AUTOMATIONS_RETRY_QUEUE_FILE } from './constants.ts';
+import { WORKSPACE_NAMESPACE } from '../workspaces/storage.ts';
 import { appendAutomationHistoryEntry } from './history-store.ts';
 import type { WebhookAction, WebhookActionResult } from './types.ts';
 
@@ -117,7 +118,7 @@ export class RetryScheduler {
       lastError,
     };
 
-    const queuePath = join(this.workspaceRootPath, AUTOMATIONS_RETRY_QUEUE_FILE);
+    const queuePath = join(this.workspaceRootPath, WORKSPACE_NAMESPACE, AUTOMATIONS_RETRY_QUEUE_FILE);
     await appendFile(queuePath, JSON.stringify(entry) + '\n', 'utf-8');
     log.debug(`[RetryScheduler] Enqueued ${entry.id} — next retry in ${DEFERRED_DELAYS_MS[0]! / 60_000}m`);
   }
@@ -130,7 +131,7 @@ export class RetryScheduler {
     this.processing = true;
 
     try {
-      const queuePath = join(this.workspaceRootPath, AUTOMATIONS_RETRY_QUEUE_FILE);
+      const queuePath = join(this.workspaceRootPath, WORKSPACE_NAMESPACE, AUTOMATIONS_RETRY_QUEUE_FILE);
 
       // Read queue
       let raw: string;

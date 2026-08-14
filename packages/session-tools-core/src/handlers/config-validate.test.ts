@@ -1,15 +1,20 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { handleConfigValidate } from './config-validate.ts';
+
+// Workspace namespace for Craft-owned workspace-local metadata.
+// Must stay in sync with WORKSPACE_NAMESPACE in
+// packages/shared/src/workspaces/storage.ts (this package cannot import shared).
+const WORKSPACE_NAMESPACE = '.craft-agent';
 
 function createCtx(workspacePath: string) {
   return {
     sessionId: 'test-session',
     workspacePath,
-    get sourcesPath() { return join(workspacePath, 'sources'); },
-    get skillsPath() { return join(workspacePath, 'skills'); },
+    get sourcesPath() { return join(workspacePath, WORKSPACE_NAMESPACE, 'sources'); },
+    get skillsPath() { return join(workspacePath, WORKSPACE_NAMESPACE, 'skills'); },
     plansFolderPath: join(workspacePath, 'plans'),
     callbacks: {
       onPlanSubmitted: () => {},
@@ -37,6 +42,7 @@ describe('config-validate automations target', () => {
 
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), 'config-validate-automations-test-'));
+    mkdirSync(join(tempDir, WORKSPACE_NAMESPACE), { recursive: true });
   });
 
   afterEach(() => {
@@ -44,7 +50,7 @@ describe('config-validate automations target', () => {
   });
 
   it('validates automations.json when present', async () => {
-    writeFileSync(join(tempDir, 'automations.json'), JSON.stringify({ version: 2, automations: {} }));
+    writeFileSync(join(tempDir, WORKSPACE_NAMESPACE, 'automations.json'), JSON.stringify({ version: 2, automations: {} }));
 
     const result = await handleConfigValidate(createCtx(tempDir), { target: 'automations' });
     expect(result.content[0]?.text).toContain('Validation passed');

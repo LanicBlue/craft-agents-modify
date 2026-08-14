@@ -159,9 +159,9 @@ export const EMOJI_ICON_PREFIX = 'emoji:'
  *
  * Resolution priority (config.icon is the source of truth):
  * 1. Emoji in config.icon → Return emoji marker for caller to render as text
- * 2. Local path in config.icon (./icon.svg) → Load from sources/{slug}/icon.svg
+ * 2. Local path in config.icon (./icon.svg) → Load from .craft-agent/sources/{slug}/icon.svg
  * 3. URL in config.icon → Return URL directly for browser to load
- * 4. config.icon undefined → Auto-discover sources/{slug}/icon.{svg,png}
+ * 4. config.icon undefined → Auto-discover .craft-agent/sources/{slug}/icon.{svg,png}
  * 5. Fallback → Resolve favicon from service URL
  *
  * Config takes precedence over auto-discovered local files. If config.icon is set
@@ -191,7 +191,9 @@ export async function loadSourceIcon(
   // Priority 2: Explicit local path in config.icon (e.g., "./icon.svg")
   if (icon?.startsWith('./')) {
     const iconFilename = icon.slice(2) // Remove './'
-    const relativePath = `sources/${config.slug}/${iconFilename}`
+    // Workspace-relative paths are namespaced under .craft-agent/ (must stay in
+    // sync with WORKSPACE_NAMESPACE in packages/shared/src/workspaces/storage.ts).
+    const relativePath = `.craft-agent/sources/${config.slug}/${iconFilename}`
     const loaded = await loadWorkspaceIcon(workspaceId, relativePath)
     if (loaded) {
       sourceIconCache.set(cacheKey, loaded)
@@ -209,13 +211,13 @@ export async function loadSourceIcon(
   // Priority 4: Auto-discover local icon files (only when config.icon is undefined)
   // This preserves backward compatibility for sources without explicit config.icon
   if (!icon) {
-    const localIconSvg = await loadWorkspaceIcon(workspaceId, `sources/${config.slug}/icon.svg`)
+    const localIconSvg = await loadWorkspaceIcon(workspaceId, `.craft-agent/sources/${config.slug}/icon.svg`)
     if (localIconSvg) {
       sourceIconCache.set(cacheKey, localIconSvg)
       return localIconSvg
     }
 
-    const localIconPng = await loadWorkspaceIcon(workspaceId, `sources/${config.slug}/icon.png`)
+    const localIconPng = await loadWorkspaceIcon(workspaceId, `.craft-agent/sources/${config.slug}/icon.png`)
     if (localIconPng) {
       sourceIconCache.set(cacheKey, localIconPng)
       return localIconPng
@@ -296,7 +298,7 @@ export function getSourceIconSync(workspaceId: string, slug: string): string | n
  * 1. Emoji in metadata.icon → Return emoji marker
  * 2. URL in metadata.icon → Return URL directly
  * 3. Known iconPath → Load from file
- * 4. Auto-discover skills/{slug}/icon.{svg,png} → Load from file
+ * 4. Auto-discover .craft-agent/skills/{slug}/icon.{svg,png} → Load from file
  *
  * @returns Promise resolving to icon URL, emoji marker, or null
  */
@@ -327,9 +329,11 @@ export async function loadSkillIcon(
 
   // Priority 3: Known icon path - load file
   if (skill.iconPath) {
+    // iconPath is absolute; extract the workspace-relative part (may or may not
+    // carry the .craft-agent/ namespace prefix).
     const skillsMatch = skill.iconPath.match(/skills\/([^/]+)\/(.+)$/)
     if (skillsMatch) {
-      const relativePath = `skills/${skillsMatch[1]}/${skillsMatch[2]}`
+      const relativePath = `.craft-agent/skills/${skillsMatch[1]}/${skillsMatch[2]}`
       const loaded = await loadWorkspaceIcon(workspaceId, relativePath)
       if (loaded) {
         skillIconCache.set(cacheKey, loaded)
@@ -340,13 +344,13 @@ export async function loadSkillIcon(
 
   // Priority 4: Auto-discover icon files (when no explicit icon configured)
   if (!iconValue) {
-    const svgIcon = await loadWorkspaceIcon(workspaceId, `skills/${skill.slug}/icon.svg`)
+    const svgIcon = await loadWorkspaceIcon(workspaceId, `.craft-agent/skills/${skill.slug}/icon.svg`)
     if (svgIcon) {
       skillIconCache.set(cacheKey, svgIcon)
       return svgIcon
     }
 
-    const pngIcon = await loadWorkspaceIcon(workspaceId, `skills/${skill.slug}/icon.png`)
+    const pngIcon = await loadWorkspaceIcon(workspaceId, `.craft-agent/skills/${skill.slug}/icon.png`)
     if (pngIcon) {
       skillIconCache.set(cacheKey, pngIcon)
       return pngIcon
@@ -466,10 +470,11 @@ const ICON_FILE_EXTENSIONS = ['.svg', '.png', '.jpg', '.jpeg']
 
 /**
  * Pre-compiled regex for extracting workspace-relative icon paths from absolute paths.
- * Matches any known entity directory prefix (skills/, sources/, statuses/)
- * followed by the rest of the path.
+ * Matches any known entity directory prefix (.craft-agent/skills/, .craft-agent/sources/,
+ * .craft-agent/statuses/ — with the optional namespace prefix also accepting legacy
+ * bare skills/, sources/, statuses/ paths) followed by the rest of the path.
  */
-const ICON_PATH_PATTERN = /(?:skills|sources|statuses)\/.+$/
+const ICON_PATH_PATTERN = /(?:\.craft-agent\/)?(?:skills|sources|statuses)\/.+$/
 
 /**
  * Options for the useEntityIcon hook.
@@ -483,13 +488,13 @@ export interface UseEntityIconOptions {
   identifier: string
   /**
    * Known relative path to icon file (for entities with pre-resolved paths).
-   * e.g. 'skills/my-skill/icon.svg'
+   * e.g. '.craft-agent/skills/my-skill/icon.svg'
    * If provided, only this exact path is attempted (no auto-discovery).
    */
   iconPath?: string
   /**
    * Directory to auto-discover icon files in (relative to workspace).
-   * e.g. 'sources/linear' → tries sources/linear/icon.svg, icon.png, etc.
+   * e.g. '.craft-agent/sources/linear' → tries .craft-agent/sources/linear/icon.svg, icon.png, etc.
    * Ignored if iconPath is provided.
    */
   iconDir?: string

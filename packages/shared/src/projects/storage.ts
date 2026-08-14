@@ -2,7 +2,7 @@
  * Project Storage
  *
  * CRUD operations for workspace-scoped projects.
- * Projects are stored at {workspaceRootPath}/projects/{projectSlug}/
+ * Projects are stored at {workspaceRootPath}/.craft-agent/projects/{projectSlug}/
  *
  * Note: All functions take `workspaceRootPath` (absolute path to workspace folder),
  * NOT a workspace slug. The `LoadedProject.workspaceId` is derived via basename().
@@ -23,6 +23,7 @@ import { randomUUID } from 'crypto';
 import { atomicWriteFileSync, readJsonFileSync, getMimeType } from '../utils/files.ts';
 import { debug } from '../utils/debug.ts';
 import { expandPath, toPortablePath } from '../utils/paths.ts';
+import { WORKSPACE_NAMESPACE } from '../workspaces/storage.ts';
 import { estimateTokensDensityAware } from '../utils/large-response.ts';
 import type {
   ProjectConfig,
@@ -39,7 +40,7 @@ import type {
  * Get path to workspace projects directory.
  */
 export function getWorkspaceProjectsPath(workspaceRootPath: string): string {
-  return join(workspaceRootPath, 'projects');
+  return join(workspaceRootPath, WORKSPACE_NAMESPACE, 'projects');
 }
 
 /**

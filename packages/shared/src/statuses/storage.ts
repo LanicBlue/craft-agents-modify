@@ -2,7 +2,7 @@
  * Status Storage
  *
  * Filesystem-based storage for workspace status configurations.
- * Statuses are stored at {workspaceRootPath}/statuses/config.json
+ * Statuses are stored at {workspaceRootPath}/.craft-agent/statuses/config.json
  *
  * Icon handling:
  * - Local files: statuses/icons/{id}.svg (auto-discovered)
@@ -25,9 +25,14 @@ import {
 import { migrateStatusColors } from '../colors/migrate.ts';
 import { debug } from '../utils/debug.ts';
 
-const STATUS_CONFIG_DIR = 'statuses';
-const STATUS_CONFIG_FILE = 'statuses/config.json';
-const STATUS_ICONS_DIR = 'statuses/icons';
+// Workspace-local storage paths are namespaced under .craft-agent/.
+// Kept as full relative paths (not join(WORKSPACE_NAMESPACE, ...)) because
+// workspaces/storage.ts imports this module — a module-level access to
+// WORKSPACE_NAMESPACE would form a circular-init dependency. Values must stay
+// in sync with WORKSPACE_NAMESPACE in workspaces/storage.ts.
+const STATUS_CONFIG_DIR = '.craft-agent/statuses';
+const STATUS_CONFIG_FILE = '.craft-agent/statuses/config.json';
+const STATUS_ICONS_DIR = '.craft-agent/statuses/icons';
 
 /**
  * Get default status configuration (matches current hardcoded behavior)

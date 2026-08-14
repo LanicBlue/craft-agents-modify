@@ -9,6 +9,11 @@ import type { HandlerDeps } from '../handler-deps'
 
 // History file name — matches AUTOMATIONS_HISTORY_FILE from @craft-agent/shared/automations/constants
 const HISTORY_FILE = 'automations-history.jsonl'
+
+// Workspace namespace for Craft-owned workspace-local metadata.
+// Must stay in sync with WORKSPACE_NAMESPACE in
+// packages/shared/src/workspaces/storage.ts (not importable via package exports).
+const WORKSPACE_NAMESPACE = '.craft-agent'
 interface HistoryEntry { id: string; ts: number; ok: boolean; sessionId?: string; prompt?: string; error?: string; webhook?: { method: string; url: string; statusCode: number; durationMs: number; attempts?: number; error?: string; responseBody?: string } }
 
 // Per-workspace config mutex: serializes read-modify-write cycles on automations.json
@@ -236,7 +241,7 @@ export function registerAutomationsHandlers(server: RpcServer, deps: HandlerDeps
     if (!workspace) throw new Error('Workspace not found')
 
     const clampedLimit = Math.max(1, Math.min(limit, AUTOMATION_HISTORY_MAX_RUNS_PER_MATCHER))
-    const historyPath = join(workspace.rootPath, HISTORY_FILE)
+    const historyPath = join(workspace.rootPath, WORKSPACE_NAMESPACE, HISTORY_FILE)
     try {
       const content = await readFile(historyPath, 'utf-8')
       const lines = content.trim().split('\n').filter(Boolean)
@@ -301,7 +306,7 @@ export function registerAutomationsHandlers(server: RpcServer, deps: HandlerDeps
     const workspace = getWorkspaceByNameOrId(workspaceId)
     if (!workspace) throw new Error('Workspace not found')
 
-    const historyPath = join(workspace.rootPath, HISTORY_FILE)
+    const historyPath = join(workspace.rootPath, WORKSPACE_NAMESPACE, HISTORY_FILE)
     try {
       const content = await readFile(historyPath, 'utf-8')
       const result: Record<string, number> = {}

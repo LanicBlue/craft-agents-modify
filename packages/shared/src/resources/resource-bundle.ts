@@ -23,7 +23,7 @@ import {
   restoreFiles,
   validateBundleFile,
 } from '../utils/bundle-files.ts'
-import { getWorkspaceSourcesPath, getWorkspaceSkillsPath } from '../workspaces/storage.ts'
+import { getWorkspaceSourcesPath, getWorkspaceSkillsPath, loadWorkspaceConfig, WORKSPACE_NAMESPACE } from '../workspaces/storage.ts'
 import { loadSourceConfig, getSourcePath } from '../sources/storage.ts'
 import { isBuiltinSource } from '../sources/builtin-sources.ts'
 import { validateSourceConfig } from '../config/validators.ts'
@@ -129,12 +129,9 @@ export function exportResources(
 
   // Try to read workspace name for informational purposes
   try {
-    const wsConfigPath = join(workspaceRootPath, 'config.json')
-    if (existsSync(wsConfigPath)) {
-      const wsConfig = JSON.parse(readFileSync(wsConfigPath, 'utf-8'))
-      if (wsConfig.name) {
-        bundle.sourceWorkspace = wsConfig.name
-      }
+    const wsConfig = loadWorkspaceConfig(workspaceRootPath)
+    if (wsConfig?.name) {
+      bundle.sourceWorkspace = wsConfig.name
     }
   } catch {
     // Non-fatal: sourceWorkspace is informational
@@ -328,7 +325,7 @@ function exportAutomations(
   selection: string[] | 'all',
   warnings: string[],
 ): AutomationBundleEntry[] {
-  const automationsPath = join(workspaceRootPath, AUTOMATIONS_CONFIG_FILE)
+  const automationsPath = join(workspaceRootPath, WORKSPACE_NAMESPACE, AUTOMATIONS_CONFIG_FILE)
 
   if (!existsSync(automationsPath)) {
     warnings.push('No automations.json found in workspace')
@@ -880,7 +877,7 @@ function importAutomations(
   mode: ResourceImportMode,
 ): ImportBucketResult {
   const result = emptyBucketResult()
-  const configPath = join(workspaceRootPath, AUTOMATIONS_CONFIG_FILE)
+  const configPath = join(workspaceRootPath, WORKSPACE_NAMESPACE, AUTOMATIONS_CONFIG_FILE)
 
   // Read existing config (if present)
   let existingConfig: { version?: number; automations: Record<string, AutomationMatcher[]> }
@@ -994,8 +991,8 @@ function importAutomations(
 
   // Selectively clear history + retry queue for overwritten matcher IDs
   if (overwrittenIds.size > 0) {
-    const historyPath = join(workspaceRootPath, AUTOMATIONS_HISTORY_FILE)
-    const retryPath = join(workspaceRootPath, AUTOMATIONS_RETRY_QUEUE_FILE)
+    const historyPath = join(workspaceRootPath, WORKSPACE_NAMESPACE, AUTOMATIONS_HISTORY_FILE)
+    const retryPath = join(workspaceRootPath, WORKSPACE_NAMESPACE, AUTOMATIONS_RETRY_QUEUE_FILE)
     filterJsonlByMatcherIds(historyPath, overwrittenIds)
     filterJsonlByMatcherIds(retryPath, overwrittenIds)
     result.warnings.push(`Cleared history/retry entries for ${overwrittenIds.size} overwritten automation(s)`)

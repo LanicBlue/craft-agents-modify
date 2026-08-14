@@ -438,7 +438,7 @@ describe('legacy Opus migration to default Opus (integration)', () => {
 
     runMigration(configDir)
 
-    const migratedWsConfig = JSON.parse(readFileSync(wsConfigPath, 'utf-8'))
+    const migratedWsConfig = JSON.parse(readFileSync(join(workspaceRoot, '.craft-agent', 'workspace.json'), 'utf-8'))
     expect(migratedWsConfig.defaults.model).toBe('claude-opus-4-6')
   })
 
@@ -463,7 +463,7 @@ describe('legacy Opus migration to default Opus (integration)', () => {
 
     runMigration(configDir)
 
-    const migratedWsConfig = JSON.parse(readFileSync(wsConfigPath, 'utf-8'))
+    const migratedWsConfig = JSON.parse(readFileSync(join(workspaceRoot, '.craft-agent', 'workspace.json'), 'utf-8'))
     expect(migratedWsConfig.defaults.model).toBe('claude-opus-4-8')
   })
 

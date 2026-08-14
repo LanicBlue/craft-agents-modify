@@ -37,7 +37,7 @@ describe('SessionPersistenceQueue', () => {
     testDir = join(tmpdir(), `persistence-queue-test-${Date.now()}`);
     mkdirSync(testDir, { recursive: true });
     // Create sessions subdirectory structure
-    mkdirSync(join(testDir, 'sessions', 'test-session'), { recursive: true });
+    mkdirSync(join(testDir, '.craft-agent', 'sessions', 'test-session'), { recursive: true });
     // Use 0ms debounce for immediate writes in tests
     queue = new SessionPersistenceQueue(0);
   });
@@ -54,7 +54,7 @@ describe('SessionPersistenceQueue', () => {
     queue.enqueue(session);
     await queue.flush('test-session');
 
-    const filePath = join(testDir, 'sessions', 'test-session', 'session.jsonl');
+    const filePath = join(testDir, '.craft-agent', 'sessions', 'test-session', 'session.jsonl');
     expect(existsSync(filePath)).toBe(true);
 
     const content = readFileSync(filePath, 'utf-8');
@@ -82,7 +82,7 @@ describe('SessionPersistenceQueue', () => {
     await Promise.all([flush1, flush2]);
 
     // The final file should have the NEWER data (new-thread-id)
-    const filePath = join(testDir, 'sessions', 'test-session', 'session.jsonl');
+    const filePath = join(testDir, '.craft-agent', 'sessions', 'test-session', 'session.jsonl');
     const content = readFileSync(filePath, 'utf-8');
     const header = JSON.parse(content.split('\n')[0]);
 
@@ -92,8 +92,8 @@ describe('SessionPersistenceQueue', () => {
 
   it('allows parallel writes to different sessions', async () => {
     // Different sessions should write in parallel without blocking each other
-    mkdirSync(join(testDir, 'sessions', 'session-a'), { recursive: true });
-    mkdirSync(join(testDir, 'sessions', 'session-b'), { recursive: true });
+    mkdirSync(join(testDir, '.craft-agent', 'sessions', 'session-a'), { recursive: true });
+    mkdirSync(join(testDir, '.craft-agent', 'sessions', 'session-b'), { recursive: true });
 
     const sessionA = createTestSession('session-a', testDir, 'id-a');
     const sessionB = createTestSession('session-b', testDir, 'id-b');
@@ -109,11 +109,11 @@ describe('SessionPersistenceQueue', () => {
 
     // Both should be written correctly
     const contentA = readFileSync(
-      join(testDir, 'sessions', 'session-a', 'session.jsonl'),
+      join(testDir, '.craft-agent', 'sessions', 'session-a', 'session.jsonl'),
       'utf-8'
     );
     const contentB = readFileSync(
-      join(testDir, 'sessions', 'session-b', 'session.jsonl'),
+      join(testDir, '.craft-agent', 'sessions', 'session-b', 'session.jsonl'),
       'utf-8'
     );
 

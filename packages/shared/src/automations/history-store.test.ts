@@ -3,14 +3,15 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { appendAutomationHistoryEntry, compactAutomationHistory } from './history-store.ts';
 import { AUTOMATIONS_HISTORY_FILE } from './constants.ts';
+import { WORKSPACE_NAMESPACE } from '../workspaces/storage.ts';
 
 function readHistory(dir: string): Array<{ id: string; ts: number; [k: string]: unknown }> {
-  const path = join(dir, AUTOMATIONS_HISTORY_FILE);
+  const path = join(dir, WORKSPACE_NAMESPACE, AUTOMATIONS_HISTORY_FILE);
   try {
     return readFileSync(path, 'utf-8')
       .trim()
@@ -31,6 +32,7 @@ describe('history-store', () => {
 
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), 'history-store-test-'));
+    mkdirSync(join(tempDir, WORKSPACE_NAMESPACE), { recursive: true });
   });
 
   afterEach(() => {
@@ -68,7 +70,7 @@ describe('history-store', () => {
       const lines = Array.from({ length: 30 }, (_, i) =>
         JSON.stringify(makeEntry('a1', i))
       ).join('\n') + '\n';
-      writeFileSync(join(tempDir, AUTOMATIONS_HISTORY_FILE), lines);
+      writeFileSync(join(tempDir, WORKSPACE_NAMESPACE, AUTOMATIONS_HISTORY_FILE), lines);
 
       await compactAutomationHistory(tempDir, 20, 1000);
 
@@ -86,7 +88,7 @@ describe('history-store', () => {
         lines.push(JSON.stringify(makeEntry('a1', i)));
         lines.push(JSON.stringify(makeEntry('a2', 100 + i)));
       }
-      writeFileSync(join(tempDir, AUTOMATIONS_HISTORY_FILE), lines.join('\n') + '\n');
+      writeFileSync(join(tempDir, WORKSPACE_NAMESPACE, AUTOMATIONS_HISTORY_FILE), lines.join('\n') + '\n');
 
       await compactAutomationHistory(tempDir, 20, 1000);
 
@@ -109,7 +111,7 @@ describe('history-store', () => {
           lines.push(JSON.stringify(makeEntry(`auto-${automationIdx}`, automationIdx * 1000 + i)));
         }
       }
-      writeFileSync(join(tempDir, AUTOMATIONS_HISTORY_FILE), lines.join('\n') + '\n');
+      writeFileSync(join(tempDir, WORKSPACE_NAMESPACE, AUTOMATIONS_HISTORY_FILE), lines.join('\n') + '\n');
 
       await compactAutomationHistory(tempDir, 20, 1000);
 
@@ -123,7 +125,7 @@ describe('history-store', () => {
       for (let i = 0; i < 30; i++) {
         lines.push(JSON.stringify(makeEntry('a1', i * 10)));
       }
-      writeFileSync(join(tempDir, AUTOMATIONS_HISTORY_FILE), lines.join('\n') + '\n');
+      writeFileSync(join(tempDir, WORKSPACE_NAMESPACE, AUTOMATIONS_HISTORY_FILE), lines.join('\n') + '\n');
 
       await compactAutomationHistory(tempDir, 20, 1000);
 
@@ -141,7 +143,7 @@ describe('history-store', () => {
         '',
         JSON.stringify(makeEntry('a1', 3)),
       ];
-      writeFileSync(join(tempDir, AUTOMATIONS_HISTORY_FILE), lines.join('\n') + '\n');
+      writeFileSync(join(tempDir, WORKSPACE_NAMESPACE, AUTOMATIONS_HISTORY_FILE), lines.join('\n') + '\n');
 
       await compactAutomationHistory(tempDir, 20, 1000);
 
@@ -158,7 +160,7 @@ describe('history-store', () => {
       const lines = Array.from({ length: 5 }, (_, i) =>
         JSON.stringify(makeEntry('a1', i))
       ).join('\n') + '\n';
-      writeFileSync(join(tempDir, AUTOMATIONS_HISTORY_FILE), lines);
+      writeFileSync(join(tempDir, WORKSPACE_NAMESPACE, AUTOMATIONS_HISTORY_FILE), lines);
 
       await compactAutomationHistory(tempDir, 20, 1000);
 

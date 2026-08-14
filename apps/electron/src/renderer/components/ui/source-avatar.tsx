@@ -147,7 +147,9 @@ export function SourceAvatar({ source, size = 'md', fluid, showStatus, className
     workspaceId: source.workspaceId,
     entityType: 'source',
     identifier: source.config.slug,
-    iconDir: `sources/${source.config.slug}`,
+    // Workspace-relative paths are namespaced under .craft-agent/ (must stay
+    // in sync with WORKSPACE_NAMESPACE in packages/shared/src/workspaces/storage.ts).
+    iconDir: `.craft-agent/sources/${source.config.slug}`,
     iconValue: source.config.icon,
   })
 

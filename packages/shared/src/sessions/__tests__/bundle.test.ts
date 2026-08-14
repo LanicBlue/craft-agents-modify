@@ -49,7 +49,7 @@ function makeStoredSession(overrides: Partial<StoredSession> = {}): StoredSessio
 }
 
 function setupSessionDir(workspaceRoot: string, session: StoredSession): string {
-  const sessionsDir = join(workspaceRoot, 'sessions', session.id)
+  const sessionsDir = join(workspaceRoot, '.craft-agent', 'sessions', session.id)
   mkdirSync(sessionsDir, { recursive: true })
 
   // Write JSONL

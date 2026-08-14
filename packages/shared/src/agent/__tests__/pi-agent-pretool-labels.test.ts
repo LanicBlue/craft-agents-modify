@@ -57,7 +57,7 @@ describe('PiAgent pre-tool labels guard', () => {
     await (agent as any).handlePreToolUseRequest({
       requestId: 'req-1',
       toolName: 'Read',
-      input: { file_path: `${workspaceRootPath}/labels/config.json` },
+      input: { file_path: `${workspaceRootPath}/.craft-agent/labels/config.json` },
     })
 
     expect(sent.length).toBeGreaterThan(0)

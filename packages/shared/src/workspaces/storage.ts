@@ -25,6 +25,7 @@ import { getDefaultLabelConfig, saveLabelConfig } from '../labels/storage.ts';
 import { loadConfigDefaults } from '../config/storage.ts';
 import { parsePermissionMode, PERMISSION_MODE_ORDER } from '../agent/mode-types.ts';
 import { normalizeThinkingLevel } from '../agent/thinking-levels.ts';
+import { ensureWorkspaceNamespace, ensureGitIgnore } from './migrate-namespace.ts';
 import type {
   WorkspaceConfig,
   CreateWorkspaceInput,
@@ -34,6 +35,24 @@ import type {
 
 const CONFIG_DIR = join(homedir(), '.craft-agent');
 const DEFAULT_WORKSPACES_DIR = join(CONFIG_DIR, 'workspaces');
+
+// ============================================================
+// Workspace Namespace
+// ============================================================
+
+/**
+ * Workspace-local namespace directory name.
+ * All Craft-owned workspace metadata lives under {rootPath}/.craft-agent/.
+ */
+export const WORKSPACE_NAMESPACE = '.craft-agent';
+
+/**
+ * Get the workspace namespace directory (.craft-agent/) for a workspace root.
+ * @param rootPath - Absolute path to workspace root folder
+ */
+export function getWorkspaceNamespaceDir(rootPath: string): string {
+  return join(rootPath, WORKSPACE_NAMESPACE);
+}
 
 // ============================================================
 // Path Utilities
@@ -69,7 +88,7 @@ export function getWorkspacePath(workspaceId: string): string {
  * @param rootPath - Absolute path to workspace root folder
  */
 export function getWorkspaceSourcesPath(rootPath: string): string {
-  return join(rootPath, 'sources');
+  return join(rootPath, WORKSPACE_NAMESPACE, 'sources');
 }
 
 /**
@@ -77,7 +96,7 @@ export function getWorkspaceSourcesPath(rootPath: string): string {
  * @param rootPath - Absolute path to workspace root folder
  */
 export function getWorkspaceSessionsPath(rootPath: string): string {
-  return join(rootPath, 'sessions');
+  return join(rootPath, WORKSPACE_NAMESPACE, 'sessions');
 }
 
 /**
@@ -85,7 +104,7 @@ export function getWorkspaceSessionsPath(rootPath: string): string {
  * @param rootPath - Absolute path to workspace root folder
  */
 export function getWorkspaceSkillsPath(rootPath: string): string {
-  return join(rootPath, 'skills');
+  return join(rootPath, WORKSPACE_NAMESPACE, 'skills');
 }
 
 // ============================================================
@@ -93,11 +112,19 @@ export function getWorkspaceSkillsPath(rootPath: string): string {
 // ============================================================
 
 /**
- * Load workspace config.json from a workspace folder
+ * Load workspace config from a workspace folder.
+ * Reads the namespaced .craft-agent/workspace.json when present, falling back
+ * to the legacy root-level config.json for workspaces not yet migrated.
  * @param rootPath - Absolute path to workspace root folder
  */
 export function loadWorkspaceConfig(rootPath: string): WorkspaceConfig | null {
-  const configPath = join(rootPath, 'config.json');
+  // Idempotent one-time migration from legacy root-level layout to .craft-agent/.
+  // Fast no-op (a couple of existsSync) for migrated/fresh workspaces.
+  ensureWorkspaceNamespace(rootPath);
+
+  const configPath = existsSync(join(rootPath, WORKSPACE_NAMESPACE, 'workspace.json'))
+    ? join(rootPath, WORKSPACE_NAMESPACE, 'workspace.json')
+    : join(rootPath, 'config.json');
   if (!existsSync(configPath)) return null;
 
   try {
@@ -138,7 +165,7 @@ export function loadWorkspaceConfig(rootPath: string): WorkspaceConfig | null {
 }
 
 /**
- * Save workspace config.json to a workspace folder
+ * Save workspace config to a workspace folder (as .craft-agent/workspace.json)
  * @param rootPath - Absolute path to workspace root folder
  */
 export function saveWorkspaceConfig(rootPath: string, config: WorkspaceConfig): void {
@@ -159,8 +186,14 @@ export function saveWorkspaceConfig(rootPath: string, config: WorkspaceConfig): 
     };
   }
 
+  // Ensure workspace namespace directory exists
+  const namespaceDir = getWorkspaceNamespaceDir(rootPath);
+  if (!existsSync(namespaceDir)) {
+    mkdirSync(namespaceDir, { recursive: true });
+  }
+
   // Use atomic write to prevent corruption on crash/interrupt
-  atomicWriteFileSync(join(rootPath, 'config.json'), JSON.stringify(storageConfig, null, 2));
+  atomicWriteFileSync(join(namespaceDir, 'workspace.json'), JSON.stringify(storageConfig, null, 2));
 }
 
 // ============================================================
@@ -198,6 +231,9 @@ function listSubdirNames(dirPath: string): string[] {
  * @param rootPath - Absolute path to workspace root folder
  */
 export function loadWorkspace(rootPath: string): LoadedWorkspace | null {
+  // Defensive: loadWorkspaceConfig() runs the same idempotent migration.
+  ensureWorkspaceNamespace(rootPath);
+
   const config = loadWorkspaceConfig(rootPath);
   if (!config) return null;
 
@@ -326,6 +362,7 @@ export function createWorkspaceAtPath(
 
   // Create workspace directory structure
   mkdirSync(rootPath, { recursive: true });
+  mkdirSync(getWorkspaceNamespaceDir(rootPath), { recursive: true });
   mkdirSync(getWorkspaceSourcesPath(rootPath), { recursive: true });
   mkdirSync(getWorkspaceSessionsPath(rootPath), { recursive: true });
   mkdirSync(getWorkspaceSkillsPath(rootPath), { recursive: true });
@@ -342,6 +379,9 @@ export function createWorkspaceAtPath(
 
   // Initialize plugin manifest for SDK integration (enables skills, commands, agents)
   ensurePluginManifest(rootPath, name);
+
+  // Protect new workspace metadata from being committed to git
+  ensureGitIgnore(rootPath);
 
   return config;
 }
@@ -362,11 +402,16 @@ export function deleteWorkspaceFolder(rootPath: string): boolean {
 }
 
 /**
- * Check if a valid workspace exists at a path
+ * Check if a valid workspace exists at a path.
+ * Accepts either the namespaced .craft-agent/workspace.json or the legacy
+ * root-level config.json (pre-migration workspaces).
  * @param rootPath - Absolute path to check
  */
 export function isValidWorkspace(rootPath: string): boolean {
-  return existsSync(join(rootPath, 'config.json'));
+  return (
+    existsSync(join(rootPath, WORKSPACE_NAMESPACE, 'workspace.json')) ||
+    existsSync(join(rootPath, 'config.json'))
+  );
 }
 
 /**

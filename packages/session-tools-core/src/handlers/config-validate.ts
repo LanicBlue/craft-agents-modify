@@ -8,6 +8,11 @@
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 
+// Workspace namespace for Craft-owned workspace-local metadata.
+// Must stay in sync with WORKSPACE_NAMESPACE in
+// packages/shared/src/workspaces/storage.ts (this package cannot import shared).
+const WORKSPACE_NAMESPACE = '.craft-agent';
+
 const AUTOMATIONS_CONFIG_FILE = 'automations.json';
 import type { SessionToolContext } from '../context.ts';
 import type { ToolResult } from '../types.ts';
@@ -98,7 +103,7 @@ export async function handleConfigValidate(
         return successResponse(formatValidationResult(result));
       } else {
         // Validate all sources
-        const sourcesDir = join(ctx.workspacePath, 'sources');
+        const sourcesDir = join(ctx.workspacePath, WORKSPACE_NAMESPACE, 'sources');
         if (!ctx.fs.exists(sourcesDir)) {
           return successResponse('✓ No sources directory (no sources to validate)');
         }
@@ -130,7 +135,7 @@ export async function handleConfigValidate(
 
     case 'statuses': {
       const result = validateJsonFileHasFields(
-        join(ctx.workspacePath, 'statuses', 'config.json'),
+        join(ctx.workspacePath, WORKSPACE_NAMESPACE, 'statuses', 'config.json'),
         ['statuses']
       );
       return successResponse(formatValidationResult(result));
@@ -146,7 +151,7 @@ export async function handleConfigValidate(
 
     case 'permissions': {
       // Check workspace-level permissions.json
-      const workspacePermsPath = join(ctx.workspacePath, 'permissions.json');
+      const workspacePermsPath = join(ctx.workspacePath, WORKSPACE_NAMESPACE, 'permissions.json');
       if (!ctx.fs.exists(workspacePermsPath)) {
         return successResponse('✓ No workspace permissions.json (using defaults)');
       }
@@ -155,7 +160,7 @@ export async function handleConfigValidate(
     }
 
     case 'automations': {
-      const automationsPath = join(ctx.workspacePath, AUTOMATIONS_CONFIG_FILE);
+      const automationsPath = join(ctx.workspacePath, WORKSPACE_NAMESPACE, AUTOMATIONS_CONFIG_FILE);
       if (ctx.fs.exists(automationsPath)) {
         const result = validateJsonFileHasFields(automationsPath, []);
         return successResponse(formatValidationResult(result));

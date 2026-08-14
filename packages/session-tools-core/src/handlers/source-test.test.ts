@@ -15,6 +15,11 @@ import { handleSourceTest } from './source-test.ts';
 import type { SessionToolContext } from '../context.ts';
 import type { SourceConfig } from '../types.ts';
 
+// Workspace namespace for Craft-owned workspace-local metadata.
+// Must stay in sync with WORKSPACE_NAMESPACE in
+// packages/shared/src/workspaces/storage.ts (this package cannot import shared).
+const WORKSPACE_NAMESPACE = '.craft-agent';
+
 type ActivateResult = Awaited<
   ReturnType<NonNullable<SessionToolContext['activateSourceInSession']>>
 >;
@@ -32,10 +37,10 @@ function createCtx(workspacePath: string, overrides: CtxOverrides = {}): Session
     sessionId: 'test-session',
     workspacePath,
     get sourcesPath() {
-      return join(workspacePath, 'sources');
+      return join(workspacePath, WORKSPACE_NAMESPACE, 'sources');
     },
     get skillsPath() {
-      return join(workspacePath, 'skills');
+      return join(workspacePath, WORKSPACE_NAMESPACE, 'skills');
     },
     plansFolderPath: join(workspacePath, 'plans'),
     callbacks: {
@@ -55,13 +60,13 @@ function createCtx(workspacePath: string, overrides: CtxOverrides = {}): Session
       },
     },
     loadSourceConfig: (slug: string) => {
-      const configPath = join(workspacePath, 'sources', slug, 'config.json');
+      const configPath = join(workspacePath, WORKSPACE_NAMESPACE, 'sources', slug, 'config.json');
       if (!existsSync(configPath)) return null;
       return JSON.parse(readFileSync(configPath, 'utf-8')) as SourceConfig;
     },
     saveSourceConfig: (source: SourceConfig) => {
       saved.last = source;
-      const configPath = join(workspacePath, 'sources', source.slug, 'config.json');
+      const configPath = join(workspacePath, WORKSPACE_NAMESPACE, 'sources', source.slug, 'config.json');
       writeFileSync(configPath, JSON.stringify(source, null, 2));
     },
     // Stub the MCP validator so connection tests don't hit the network.
@@ -80,7 +85,7 @@ function writeSource(
   slug: string,
   overrides: Partial<SourceConfig> = {}
 ): void {
-  const sourcePath = join(workspacePath, 'sources', slug);
+  const sourcePath = join(workspacePath, WORKSPACE_NAMESPACE, 'sources', slug);
   mkdirSync(sourcePath, { recursive: true });
   const config: SourceConfig = {
     id: slug,
@@ -150,7 +155,7 @@ describe('source_test auto-enable', () => {
     expect(activated).toBe('craft-kb');
 
     const persisted = JSON.parse(
-      readFileSync(join(tempDir, 'sources', 'craft-kb', 'config.json'), 'utf-8')
+      readFileSync(join(tempDir, WORKSPACE_NAMESPACE, 'sources', 'craft-kb', 'config.json'), 'utf-8')
     ) as SourceConfig;
     expect(persisted.enabled).toBe(true);
   });
@@ -192,7 +197,7 @@ describe('source_test auto-enable', () => {
 
     expect(activated).toBe(false);
     const persisted = JSON.parse(
-      readFileSync(join(tempDir, 'sources', 'craft-kb', 'config.json'), 'utf-8')
+      readFileSync(join(tempDir, WORKSPACE_NAMESPACE, 'sources', 'craft-kb', 'config.json'), 'utf-8')
     ) as SourceConfig;
     // saveSourceConfig still runs (metadata update), but enabled flag must remain false.
     expect(persisted.enabled).toBe(false);
@@ -218,7 +223,7 @@ describe('source_test auto-enable', () => {
     expect(text).not.toContain('auto-enabled in config');
 
     const persisted = JSON.parse(
-      readFileSync(join(tempDir, 'sources', 'broken', 'config.json'), 'utf-8')
+      readFileSync(join(tempDir, WORKSPACE_NAMESPACE, 'sources', 'broken', 'config.json'), 'utf-8')
     ) as SourceConfig;
     expect(persisted.enabled).toBe(false);
   });
@@ -238,7 +243,7 @@ describe('source_test auto-enable', () => {
     expect(text).toContain('Restart session to load tools');
 
     const persisted = JSON.parse(
-      readFileSync(join(tempDir, 'sources', 'craft-kb', 'config.json'), 'utf-8')
+      readFileSync(join(tempDir, WORKSPACE_NAMESPACE, 'sources', 'craft-kb', 'config.json'), 'utf-8')
     ) as SourceConfig;
     expect(persisted.enabled).toBe(true);
   });
@@ -257,7 +262,7 @@ describe('source_test auto-enable', () => {
     expect(text).toContain('session activation failed: build failed');
 
     const persisted = JSON.parse(
-      readFileSync(join(tempDir, 'sources', 'craft-kb', 'config.json'), 'utf-8')
+      readFileSync(join(tempDir, WORKSPACE_NAMESPACE, 'sources', 'craft-kb', 'config.json'), 'utf-8')
     ) as SourceConfig;
     expect(persisted.enabled).toBe(true);
   });
@@ -323,7 +328,7 @@ function writeApiSource(
   slug: string,
   overrides: Partial<SourceConfig> = {}
 ): void {
-  const sourcePath = join(workspacePath, 'sources', slug);
+  const sourcePath = join(workspacePath, WORKSPACE_NAMESPACE, 'sources', slug);
   mkdirSync(sourcePath, { recursive: true });
   const config: SourceConfig = {
     id: slug,
@@ -380,7 +385,7 @@ describe('source_test API connection branches', () => {
     expect(activated).toBe('good-api');
 
     const persisted = JSON.parse(
-      readFileSync(join(tempDir, 'sources', 'good-api', 'config.json'), 'utf-8')
+      readFileSync(join(tempDir, WORKSPACE_NAMESPACE, 'sources', 'good-api', 'config.json'), 'utf-8')
     ) as SourceConfig;
     expect(persisted.enabled).toBe(true);
     expect(persisted.connectionStatus).toBe('connected');
@@ -411,7 +416,7 @@ describe('source_test API connection branches', () => {
     expect(activated).toBe(false);
 
     const persisted = JSON.parse(
-      readFileSync(join(tempDir, 'sources', 'flaky-api', 'config.json'), 'utf-8')
+      readFileSync(join(tempDir, WORKSPACE_NAMESPACE, 'sources', 'flaky-api', 'config.json'), 'utf-8')
     ) as SourceConfig;
     // The enabled flag must not be flipped on a failed probe.
     expect(persisted.enabled).toBe(false);
@@ -461,7 +466,7 @@ describe('source_test API connection branches', () => {
     expect(activated).toBe('auth-needed-api');
 
     const persisted = JSON.parse(
-      readFileSync(join(tempDir, 'sources', 'auth-needed-api', 'config.json'), 'utf-8')
+      readFileSync(join(tempDir, WORKSPACE_NAMESPACE, 'sources', 'auth-needed-api', 'config.json'), 'utf-8')
     ) as SourceConfig;
     expect(persisted.enabled).toBe(true);
     expect(persisted.connectionStatus).toBe('connected');
@@ -515,7 +520,7 @@ function writeHttpMcpSource(
   slug: string,
   overrides: Partial<SourceConfig> = {}
 ): void {
-  const sourcePath = join(workspacePath, 'sources', slug);
+  const sourcePath = join(workspacePath, WORKSPACE_NAMESPACE, 'sources', slug);
   mkdirSync(sourcePath, { recursive: true });
   const config: SourceConfig = {
     id: slug,
@@ -610,7 +615,7 @@ describe('source_test HTTP MCP probe credential forwarding (regression for #720)
     expect(cred.refreshCalls).toBe(0);
 
     const persisted = JSON.parse(
-      readFileSync(join(tempDir, 'sources', 'oauth-cached', 'config.json'), 'utf-8')
+      readFileSync(join(tempDir, WORKSPACE_NAMESPACE, 'sources', 'oauth-cached', 'config.json'), 'utf-8')
     ) as SourceConfig;
     expect(persisted.connectionStatus).toBe('connected');
   });
@@ -718,7 +723,7 @@ describe('source_test basic-auth header (regression for #824)', () => {
   });
 
   function writeBasicAuthSource(slug: string): void {
-    const sourcePath = join(tempDir, 'sources', slug);
+    const sourcePath = join(tempDir, WORKSPACE_NAMESPACE, 'sources', slug);
     mkdirSync(sourcePath, { recursive: true });
     const config = {
       id: slug,

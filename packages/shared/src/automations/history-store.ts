@@ -21,6 +21,7 @@ import {
   AUTOMATION_HISTORY_MAX_RUNS_PER_MATCHER,
   AUTOMATION_HISTORY_MAX_ENTRIES,
 } from './constants.ts';
+import { WORKSPACE_NAMESPACE } from '../workspaces/storage.ts';
 
 const log = createLogger('history-store');
 
@@ -58,7 +59,7 @@ export async function appendAutomationHistoryEntry(
   workspaceRootPath: string,
   entry: Record<string, unknown>,
 ): Promise<void> {
-  const historyPath = join(workspaceRootPath, AUTOMATIONS_HISTORY_FILE);
+  const historyPath = join(workspaceRootPath, WORKSPACE_NAMESPACE, AUTOMATIONS_HISTORY_FILE);
 
   await withMutex(workspaceRootPath, async () => {
     await appendFile(historyPath, JSON.stringify(entry) + '\n', 'utf-8');
@@ -85,7 +86,7 @@ export async function compactAutomationHistory(
   maxPerMatcher: number = AUTOMATION_HISTORY_MAX_RUNS_PER_MATCHER,
   maxTotal: number = AUTOMATION_HISTORY_MAX_ENTRIES,
 ): Promise<void> {
-  const historyPath = join(workspaceRootPath, AUTOMATIONS_HISTORY_FILE);
+  const historyPath = join(workspaceRootPath, WORKSPACE_NAMESPACE, AUTOMATIONS_HISTORY_FILE);
 
   await withMutex(workspaceRootPath, () => runCompaction(historyPath, maxPerMatcher, maxTotal));
 }
@@ -100,7 +101,7 @@ export function compactAutomationHistorySync(
   maxPerMatcher: number = AUTOMATION_HISTORY_MAX_RUNS_PER_MATCHER,
   maxTotal: number = AUTOMATION_HISTORY_MAX_ENTRIES,
 ): void {
-  const historyPath = join(workspaceRootPath, AUTOMATIONS_HISTORY_FILE);
+  const historyPath = join(workspaceRootPath, WORKSPACE_NAMESPACE, AUTOMATIONS_HISTORY_FILE);
   if (!existsSync(historyPath)) return;
 
   let content: string;

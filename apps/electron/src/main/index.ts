@@ -120,6 +120,11 @@ import { checkForUpdatesOnLaunch, setAutoUpdateEventSink, isUpdating, setBeforeU
 import type { EventSink } from '@craft-agent/server-core/transport'
 import { validateGitBashPath, checkVCRedistInstalled } from '@craft-agent/server-core/services'
 
+// Workspace namespace for Craft-owned workspace-local metadata.
+// Must stay in sync with WORKSPACE_NAMESPACE in
+// packages/shared/src/workspaces/storage.ts (not importable via package exports).
+const WORKSPACE_NAMESPACE = '.craft-agent'
+
 // Initialize electron-log for renderer process support
 log.initialize()
 
@@ -665,12 +670,13 @@ app.whenReady().then(async () => {
           messagingHandle = createMessagingBootstrap({
             sessionManager: sm,
             credentialManager: getCredentialManager(),
-            getMessagingDir: (wsId: string) =>
-              join(homedir(), '.craft-agent', 'workspaces', wsId, 'messaging'),
-            getLegacyMessagingDir: (wsId: string) => {
+            getMessagingDir: (wsId: string) => {
               const ws = getWorkspaces().find((w) => w.id === wsId)
-              return ws ? join(ws.rootPath, 'messaging') : undefined
+              const rootPath = ws?.rootPath ?? join(homedir(), '.craft-agent', 'workspaces', wsId)
+              return join(rootPath, WORKSPACE_NAMESPACE, 'messaging')
             },
+            getLegacyMessagingDir: (wsId: string) =>
+              join(homedir(), '.craft-agent', 'workspaces', wsId, 'messaging'),
             // Route messaging diagnostics through the dedicated messaging log
             // at ~/.craft-agent/logs/messaging-gateway.log.
             logger: messagingGatewayLog,

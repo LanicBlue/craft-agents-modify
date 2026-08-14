@@ -2,7 +2,7 @@
  * Views Storage
  *
  * Filesystem-based storage for workspace view configurations.
- * Views are stored at {workspaceRootPath}/views.json
+ * Views are stored at {workspaceRootPath}/.craft-agent/views.json
  *
  * Views are dynamic, expression-based filters computed at runtime from session state.
  * They are never persisted on sessions — purely runtime-evaluated.
@@ -12,10 +12,11 @@ import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import type { ViewConfig } from './types.ts';
 import { getDefaultViews } from './defaults.ts';
+import { WORKSPACE_NAMESPACE } from '../workspaces/storage.ts';
 import { debug } from '../utils/debug.ts';
 import { readJsonFileSync } from '../utils/files.ts';
 
-const VIEWS_FILE = 'views.json';
+const VIEWS_FILE = '.craft-agent/views.json';
 
 /**
  * Views configuration file structure.
@@ -105,7 +106,7 @@ export function saveViews(
  * Returns the migrated config if migration occurred, null otherwise.
  */
 function migrateFromSmartLabels(workspaceRootPath: string): ViewsConfig | null {
-  const labelsConfigPath = join(workspaceRootPath, 'labels', 'config.json');
+  const labelsConfigPath = join(workspaceRootPath, WORKSPACE_NAMESPACE, 'labels', 'config.json');
   if (!existsSync(labelsConfigPath)) return null;
 
   try {

@@ -9,6 +9,7 @@ import { appendFile } from 'fs/promises';
 import { join } from 'path';
 import { randomUUID } from 'crypto';
 import type { ActionExecutionResult } from './types.ts';
+import { WORKSPACE_NAMESPACE } from '../workspaces/storage.ts';
 
 // ============================================================================
 // Types
@@ -55,7 +56,7 @@ export class AutomationEventLogger {
   onEventLost?: (events: string[], error: Error) => void;
 
   constructor(workspaceRootPath: string) {
-    this.logPath = join(workspaceRootPath, 'events.jsonl');
+    this.logPath = join(workspaceRootPath, WORKSPACE_NAMESPACE, 'events.jsonl');
   }
 
   /**

@@ -3,7 +3,7 @@
  *
  * Verifies the three-tier skill loading system:
  * 1. Global skills: ~/.agents/skills/ (lowest priority)
- * 2. Workspace skills: {workspaceRoot}/skills/ (medium priority)
+ * 2. Workspace skills: {workspaceRoot}/.craft-agent/skills/ (medium priority)
  * 3. Project skills: {projectRoot}/.agents/skills/ (highest priority)
  *
  * Uses real temp directories to test actual filesystem operations.
@@ -88,7 +88,7 @@ function createEmptySkillDir(skillsDir: string, slug: string): string {
 /** Get the set of slugs currently in the real global skills directory */
 function getExistingGlobalSlugs(): Set<string> {
   const emptyWs = mkdtempSync(join(tmpdir(), 'skills-baseline-'));
-  mkdirSync(join(emptyWs, 'skills'), { recursive: true });
+  mkdirSync(join(emptyWs, '.craft-agent', 'skills'), { recursive: true });
   try {
     const skills = loadAllSkills(emptyWs);
     // These are all global skills since the workspace is empty
@@ -108,7 +108,7 @@ beforeEach(() => {
   projectRoot = join(tempDir, 'project');
 
   // Create base directories
-  mkdirSync(join(workspaceRoot, 'skills'), { recursive: true });
+  mkdirSync(join(workspaceRoot, '.craft-agent', 'skills'), { recursive: true });
   mkdirSync(projectRoot, { recursive: true });
 });
 
@@ -124,7 +124,7 @@ afterEach(() => {
 
 describe('loadSkill', () => {
   it('should load a valid skill from workspace', () => {
-    const skillsDir = join(workspaceRoot, 'skills');
+    const skillsDir = join(workspaceRoot, '.craft-agent', 'skills');
     createSkill(skillsDir, 'commit', {
       name: 'Git Commit',
       description: 'Helps with git commits',
@@ -148,21 +148,21 @@ describe('loadSkill', () => {
   });
 
   it('should return null for directory without SKILL.md', () => {
-    createEmptySkillDir(join(workspaceRoot, 'skills'), 'empty-skill');
+    createEmptySkillDir(join(workspaceRoot, '.craft-agent', 'skills'), 'empty-skill');
 
     const skill = loadSkill(workspaceRoot, 'empty-skill');
     expect(skill).toBeNull();
   });
 
   it('should return null for invalid SKILL.md (missing required fields)', () => {
-    createInvalidSkill(join(workspaceRoot, 'skills'), 'bad-skill');
+    createInvalidSkill(join(workspaceRoot, '.craft-agent', 'skills'), 'bad-skill');
 
     const skill = loadSkill(workspaceRoot, 'bad-skill');
     expect(skill).toBeNull();
   });
 
   it('should load skill with optional globs', () => {
-    createSkill(join(workspaceRoot, 'skills'), 'frontend', {
+    createSkill(join(workspaceRoot, '.craft-agent', 'skills'), 'frontend', {
       globs: ['*.tsx', '*.css'],
     });
 
@@ -173,7 +173,7 @@ describe('loadSkill', () => {
   });
 
   it('should load skill with normalized requiredSources', () => {
-    createSkill(join(workspaceRoot, 'skills'), 'with-sources', {
+    createSkill(join(workspaceRoot, '.craft-agent', 'skills'), 'with-sources', {
       requiredSources: ['linear', ' github ', 'linear'],
     });
 
@@ -184,7 +184,7 @@ describe('loadSkill', () => {
   });
 
   it('should normalize single-string requiredSources into an array', () => {
-    const skillDir = join(workspaceRoot, 'skills', 'single-source');
+    const skillDir = join(workspaceRoot, '.craft-agent', 'skills', 'single-source');
     mkdirSync(skillDir, { recursive: true });
     writeFileSync(join(skillDir, 'SKILL.md'), `---
 name: "Single Source"
@@ -202,7 +202,7 @@ Use linear tools.
   });
 
   it('should ignore invalid requiredSources entries', () => {
-    const skillDir = join(workspaceRoot, 'skills', 'invalid-sources');
+    const skillDir = join(workspaceRoot, '.craft-agent', 'skills', 'invalid-sources');
     mkdirSync(skillDir, { recursive: true });
     writeFileSync(join(skillDir, 'SKILL.md'), `---
 name: "Invalid Sources"
@@ -224,7 +224,7 @@ Use linear tools.
   });
 
   it('should set iconPath when icon file exists', () => {
-    const skillDir = createSkill(join(workspaceRoot, 'skills'), 'with-icon');
+    const skillDir = createSkill(join(workspaceRoot, '.craft-agent', 'skills'), 'with-icon');
     writeFileSync(join(skillDir, 'icon.svg'), '<svg></svg>');
 
     const skill = loadSkill(workspaceRoot, 'with-icon');
@@ -234,7 +234,7 @@ Use linear tools.
   });
 
   it('should not set iconPath when no icon file exists', () => {
-    createSkill(join(workspaceRoot, 'skills'), 'no-icon');
+    createSkill(join(workspaceRoot, '.craft-agent', 'skills'), 'no-icon');
 
     const skill = loadSkill(workspaceRoot, 'no-icon');
 
@@ -249,7 +249,7 @@ Use linear tools.
 
 describe('loadWorkspaceSkills', () => {
   it('should load multiple skills from workspace', () => {
-    const skillsDir = join(workspaceRoot, 'skills');
+    const skillsDir = join(workspaceRoot, '.craft-agent', 'skills');
     createSkill(skillsDir, 'commit');
     createSkill(skillsDir, 'review');
     createSkill(skillsDir, 'deploy');
@@ -277,7 +277,7 @@ describe('loadWorkspaceSkills', () => {
   });
 
   it('should skip directories without SKILL.md', () => {
-    const skillsDir = join(workspaceRoot, 'skills');
+    const skillsDir = join(workspaceRoot, '.craft-agent', 'skills');
     createSkill(skillsDir, 'valid-skill');
     createEmptySkillDir(skillsDir, 'no-skill-md');
 
@@ -288,7 +288,7 @@ describe('loadWorkspaceSkills', () => {
   });
 
   it('should skip invalid SKILL.md files', () => {
-    const skillsDir = join(workspaceRoot, 'skills');
+    const skillsDir = join(workspaceRoot, '.craft-agent', 'skills');
     createSkill(skillsDir, 'valid');
     createInvalidSkill(skillsDir, 'invalid');
 
@@ -299,7 +299,7 @@ describe('loadWorkspaceSkills', () => {
   });
 
   it('should skip non-directory entries', () => {
-    const skillsDir = join(workspaceRoot, 'skills');
+    const skillsDir = join(workspaceRoot, '.craft-agent', 'skills');
     createSkill(skillsDir, 'real-skill');
     // Create a plain file in the skills directory (not a subdirectory)
     writeFileSync(join(skillsDir, 'readme.txt'), 'This is not a skill');
@@ -319,7 +319,7 @@ describe('loadWorkspaceSkills', () => {
 // ============================================================
 
 describe('loadAllSkills', () => {
-  const getWorkspaceSkillsDir = () => join(workspaceRoot, 'skills');
+  const getWorkspaceSkillsDir = () => join(workspaceRoot, '.craft-agent', 'skills');
   const getProjectSkillsDir = () => join(projectRoot, '.agents', 'skills');
 
   // Use unique slugs that won't collide with real global skills
@@ -537,7 +537,7 @@ describe('loadAllSkills', () => {
 
 describe('skillExists', () => {
   it('should return true for existing skill with SKILL.md', () => {
-    createSkill(join(workspaceRoot, 'skills'), 'exists-skill');
+    createSkill(join(workspaceRoot, '.craft-agent', 'skills'), 'exists-skill');
     expect(skillExists(workspaceRoot, 'exists-skill')).toBe(true);
   });
 
@@ -546,7 +546,7 @@ describe('skillExists', () => {
   });
 
   it('should return false for directory without SKILL.md', () => {
-    createEmptySkillDir(join(workspaceRoot, 'skills'), 'empty');
+    createEmptySkillDir(join(workspaceRoot, '.craft-agent', 'skills'), 'empty');
     expect(skillExists(workspaceRoot, 'empty')).toBe(false);
   });
 });
@@ -557,7 +557,7 @@ describe('skillExists', () => {
 
 describe('listSkillSlugs', () => {
   it('should list all valid skill slugs', () => {
-    const skillsDir = join(workspaceRoot, 'skills');
+    const skillsDir = join(workspaceRoot, '.craft-agent', 'skills');
     createSkill(skillsDir, 'alpha');
     createSkill(skillsDir, 'beta');
     createEmptySkillDir(skillsDir, 'no-skill-md');
@@ -583,7 +583,7 @@ describe('listSkillSlugs', () => {
 
 describe('deleteSkill', () => {
   it('should delete an existing skill', () => {
-    const skillsDir = join(workspaceRoot, 'skills');
+    const skillsDir = join(workspaceRoot, '.craft-agent', 'skills');
     createSkill(skillsDir, 'to-delete');
     expect(skillExists(workspaceRoot, 'to-delete')).toBe(true);
 

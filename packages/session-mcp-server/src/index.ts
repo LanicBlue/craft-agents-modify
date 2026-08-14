@@ -33,6 +33,11 @@ import {
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { isDeveloperFeedbackEnabled } from '@craft-agent/shared/feature-flags';
+
+// Workspace namespace for Craft-owned workspace-local metadata.
+// Must stay in sync with WORKSPACE_NAMESPACE in
+// @craft-agent/shared/workspaces/storage.ts (not importable via package exports).
+const WORKSPACE_NAMESPACE = '.craft-agent';
 // Import from session-tools-core
 import {
   type SessionToolContext,
@@ -93,7 +98,7 @@ interface CredentialCacheEntry {
  * The main process writes decrypted credentials to these files.
  */
 function getCredentialCachePath(workspaceRootPath: string, sourceSlug: string): string {
-  return join(workspaceRootPath, 'sources', sourceSlug, '.credential-cache.json');
+  return join(workspaceRootPath, WORKSPACE_NAMESPACE, 'sources', sourceSlug, '.credential-cache.json');
 }
 
 /**
@@ -193,15 +198,15 @@ function createCodexContext(config: SessionConfig): SessionToolContext {
   const credentialManager = createCredentialManager(workspaceRootPath);
 
   // Session paths for transform_data / render_template
-  const sessionsDir = join(workspaceRootPath, 'sessions', sessionId);
+  const sessionsDir = join(workspaceRootPath, WORKSPACE_NAMESPACE, 'sessions', sessionId);
   const sessionDataDir = join(sessionsDir, 'data');
 
   // Build context
   return {
     sessionId,
     workspacePath: workspaceRootPath,
-    get sourcesPath() { return join(workspaceRootPath, 'sources'); },
-    get skillsPath() { return join(workspaceRootPath, 'skills'); },
+    get sourcesPath() { return join(workspaceRootPath, WORKSPACE_NAMESPACE, 'sources'); },
+    get skillsPath() { return join(workspaceRootPath, WORKSPACE_NAMESPACE, 'skills'); },
     plansFolderPath,
     sessionPath: sessionsDir,
     dataPath: sessionDataDir,

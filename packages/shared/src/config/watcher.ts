@@ -10,10 +10,10 @@
  * - ~/.craft-agent/theme.json - App-level theme overrides
  * - ~/.craft-agent/themes/*.json - Preset theme files (app-level)
  * - ~/.craft-agent/workspaces/{slug}/ - Workspace directory (recursive)
- *   - sources/{slug}/config.json, guide.md, permissions.json
- *   - skills/{slug}/SKILL.md, icon.*
- *   - sessions/{id}/session.jsonl (header metadata only)
- *   - permissions.json
+ *   - .craft-agent/sources/{slug}/config.json, guide.md, permissions.json
+ *   - .craft-agent/skills/{slug}/SKILL.md, icon.*
+ *   - .craft-agent/sessions/{id}/session.jsonl (header metadata only)
+ *   - .craft-agent/permissions.json
  */
 
 import { watch, existsSync, readdirSync, statSync, readFileSync, mkdirSync } from 'fs';
@@ -41,7 +41,8 @@ import {
   downloadSourceIcon,
 } from '../sources/storage.ts';
 import { permissionsConfigCache, getAppPermissionsDir } from '../agent/permissions-config.ts';
-import { getWorkspacePath, getWorkspaceSourcesPath, getWorkspaceSkillsPath } from '../workspaces/storage.ts';
+import { getWorkspacePath, getWorkspaceSourcesPath, getWorkspaceSkillsPath, WORKSPACE_NAMESPACE } from '../workspaces/storage.ts';
+import { getSessionFilePath } from '../sessions/storage.ts';
 import type { LoadedSkill } from '../skills/types.ts';
 import { loadSkill, loadAllSkills, invalidateSkillsCache, skillNeedsIconDownload, downloadSkillIcon } from '../skills/storage.ts';
 import {
@@ -414,6 +415,13 @@ export class ConfigWatcher {
    * Handle a file change within the workspace directory
    */
   private handleWorkspaceFileChange(relativePath: string, eventType: string): void {
+    // Strip workspace namespace prefix so dispatch logic can use bare paths.
+    // Namespaced (post-migration) paths arrive as .craft-agent/sources/...;
+    // legacy root-level paths match directly without stripping.
+    const nsPrefix = `${WORKSPACE_NAMESPACE}/`;
+    if (relativePath.startsWith(nsPrefix)) {
+      relativePath = relativePath.slice(nsPrefix.length);
+    }
     const parts = relativePath.split('/');
 
     // Workspace-level permissions.json
@@ -956,7 +964,7 @@ export class ConfigWatcher {
    * made by other instances, scripts, or manual edits.
    */
   private handleSessionMetadataChange(sessionId: string): void {
-    const sessionFile = join(this.workspaceDir, 'sessions', sessionId, 'session.jsonl');
+    const sessionFile = getSessionFilePath(this.workspaceDir, sessionId);
 
     if (!existsSync(sessionFile)) {
       return;

@@ -67,7 +67,7 @@ function loadedApiSource(config: FolderSourceConfig): LoadedSource {
   return {
     config,
     guide: null,
-    folderPath: join(workspaceRoot, 'sources', config.slug),
+    folderPath: join(workspaceRoot, '.craft-agent', 'sources', config.slug),
     workspaceRootPath: workspaceRoot,
     workspaceId: basename(workspaceRoot),
   };
@@ -136,6 +136,6 @@ describe('saveSourceConfig orphan credential cleanup', () => {
 
     const loaded = loadSourceConfig(workspaceRoot, 'picnic');
     expect(loaded?.api?.authType).toBe('none');
-    expect(existsSync(join(workspaceRoot, 'sources', 'picnic', 'config.json'))).toBe(true);
+    expect(existsSync(join(workspaceRoot, '.craft-agent', 'sources', 'picnic', 'config.json'))).toBe(true);
   });
 });

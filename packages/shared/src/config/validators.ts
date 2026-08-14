@@ -370,7 +370,7 @@ export function validateAll(workspaceId?: string, workspaceRoot?: string): Valid
 // Source & Agent Validators (Folder-Based Architecture)
 // ============================================================
 
-import { getWorkspaceSourcesPath } from '../workspaces/storage.ts';
+import { getWorkspaceSourcesPath, WORKSPACE_NAMESPACE } from '../workspaces/storage.ts';
 
 // --- sources/{slug}/config.json ---
 
@@ -530,7 +530,7 @@ export function validateSourceConfigContent(jsonString: string): ValidationResul
  */
 export function validateSource(workspaceId: string, slug: string): ValidationResult {
   const sourcesDir = getWorkspaceSourcesPath(workspaceId);
-  const file = `sources/${slug}/config.json`;
+  const file = `.craft-agent/sources/${slug}/config.json`;
   const configPath = join(sourcesDir, slug, 'config.json');
 
   if (!existsSync(join(sourcesDir, slug))) {
@@ -906,7 +906,7 @@ export function validateAllSkills(workspaceRoot: string): ValidationResult {
 // Status Validators
 // ============================================================
 
-const STATUS_CONFIG_FILE = 'statuses/config.json';
+const STATUS_CONFIG_FILE = '.craft-agent/statuses/config.json';
 
 /** Required fixed statuses that must always exist */
 const REQUIRED_FIXED_STATUS_IDS = ['todo', 'done', 'cancelled'] as const;
@@ -993,7 +993,7 @@ export function validateStatuses(workspaceRoot: string): ValidationResult {
  * Runs schema validation and semantic checks. Skips icon file existence checks.
  */
 export function validateStatusesContent(jsonString: string): ValidationResult {
-  const file = 'statuses/config.json';
+  const file = '.craft-agent/statuses/config.json';
   const errors: ValidationIssue[] = [];
   const warnings: ValidationIssue[] = [];
 
@@ -1112,7 +1112,7 @@ export function validateStatusesContent(jsonString: string): ValidationResult {
 
 import { validateAutoLabelRule } from '../labels/auto/validation.ts';
 
-const LABEL_CONFIG_FILE = 'labels/config.json';
+const LABEL_CONFIG_FILE = '.craft-agent/labels/config.json';
 
 /** Maximum nesting depth for label tree (prevents excessively deep hierarchies) */
 const MAX_LABEL_DEPTH = 5;
@@ -1218,7 +1218,7 @@ export function validateLabels(workspaceRoot: string): ValidationResult {
  * Checks schema validation and semantic rules (unique IDs, max depth).
  */
 export function validateLabelsContent(jsonString: string): ValidationResult {
-  const file = 'labels/config.json';
+  const file = '.craft-agent/labels/config.json';
   const errors: ValidationIssue[] = [];
   const warnings: ValidationIssue[] = [];
 
@@ -1493,7 +1493,7 @@ export function validateAllPermissions(workspaceRoot: string): ValidationResult 
   warnings.push(...wsResult.warnings);
 
   // Validate all source-level permissions
-  const sourcesDir = join(workspaceRoot, 'sources');
+  const sourcesDir = getWorkspaceSourcesPath(workspaceRoot);
   if (existsSync(sourcesDir)) {
     const entries = readdirSync(sourcesDir);
     for (const entry of entries) {
@@ -1992,7 +1992,14 @@ export function detectConfigFileType(filePath: string, workspaceRootPath: string
   }
 
   // Get the relative path from workspace root (no leading slash since root ends with /)
-  const relativePath = normalizedPath.slice(normalizedRoot.length);
+  let relativePath = normalizedPath.slice(normalizedRoot.length);
+
+  // Strip workspace namespace prefix so patterns match both namespaced
+  // (.craft-agent/...) and legacy root-level paths.
+  const nsPrefix = `${WORKSPACE_NAMESPACE}/`;
+  if (relativePath.startsWith(nsPrefix)) {
+    relativePath = relativePath.slice(nsPrefix.length);
+  }
 
   // Match: sources/{slug}/config.json
   const sourceMatch = relativePath.match(/^sources\/([^/]+)\/config\.json$/);

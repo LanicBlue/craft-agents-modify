@@ -2,7 +2,7 @@
  * Label Storage
  *
  * Filesystem-based storage for workspace label configurations.
- * Labels are stored at {workspaceRootPath}/labels/config.json
+ * Labels are stored at {workspaceRootPath}/.craft-agent/labels/config.json
  *
  * Hierarchy: Labels form a nested JSON tree. IDs are simple slugs.
  * New workspaces are seeded with default labels (Development + Content groups).
@@ -17,8 +17,13 @@ import { readJsonFileSync } from '../utils/files.ts';
 import { migrateLabelColors } from '../colors/migrate.ts';
 import { debug } from '../utils/debug.ts';
 
-const LABEL_CONFIG_DIR = 'labels';
-const LABEL_CONFIG_FILE = 'labels/config.json';
+// Workspace-local storage paths are namespaced under .craft-agent/.
+// Kept as full relative paths (not join(WORKSPACE_NAMESPACE, ...)) because
+// workspaces/storage.ts imports this module — a module-level access to
+// WORKSPACE_NAMESPACE would form a circular-init dependency. Values must stay
+// in sync with WORKSPACE_NAMESPACE in workspaces/storage.ts.
+const LABEL_CONFIG_DIR = '.craft-agent/labels';
+const LABEL_CONFIG_FILE = '.craft-agent/labels/config.json';
 
 /**
  * Get default label configuration.

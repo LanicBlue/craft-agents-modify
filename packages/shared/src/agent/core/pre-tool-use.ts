@@ -37,6 +37,7 @@ import {
 import { FEATURE_FLAGS } from '../../feature-flags.ts';
 import { AGENTS_PLUGIN_NAME } from '../../skills/types.ts';
 import { GLOBAL_AGENT_SKILLS_DIR, PROJECT_AGENT_SKILLS_DIR } from '../../skills/storage.ts';
+import { getWorkspaceSkillsPath } from '../../workspaces/storage.ts';
 import {
   shouldAllowToolInMode,
   isApiEndpointAllowed,
@@ -198,7 +199,7 @@ export function expandToolPaths(
  *
  * The SDK resolves skills as `pluginName:skillSlug` where the plugin name is
  * read from `.claude-plugin/plugin.json` `name` field. Skills can live in 3 tiers:
- *   1. Workspace: {workspaceRoot}/skills/{slug}/ → plugin name from plugin.json
+ *   1. Workspace: {workspaceRoot}/.craft-agent/skills/{slug}/ → plugin name from plugin.json
  *   2. Project:   {workingDir}/.agents/skills/{slug}/ → plugin name = ".agents"
  *   3. Global:    ~/.agents/skills/{slug}/ → plugin name = ".agents"
  *
@@ -268,8 +269,8 @@ function resolveSkillPlugin(
     return `${AGENTS_PLUGIN_NAME}:${bareSlug}`;
   }
 
-  // 2. Workspace: {workspaceRoot}/skills/{slug}/SKILL.md
-  if (existsSync(join(workspaceRootPath, 'skills', bareSlug, 'SKILL.md'))) {
+  // 2. Workspace: {workspaceRoot}/.craft-agent/skills/{slug}/SKILL.md
+  if (existsSync(join(getWorkspaceSkillsPath(workspaceRootPath), bareSlug, 'SKILL.md'))) {
     return `${workspaceSlug}:${bareSlug}`;
   }
 
@@ -338,10 +339,10 @@ export const stripMcpMetadata = stripToolMetadata;
  * invalid configs from ever reaching disk.
  *
  * Validates:
- * - sources/{slug}/config.json
- * - skills/{slug}/SKILL.md
- * - statuses/config.json
- * - permissions.json
+ * - .craft-agent/sources/{slug}/config.json
+ * - .craft-agent/skills/{slug}/SKILL.md
+ * - .craft-agent/statuses/config.json
+ * - .craft-agent/permissions.json
  * - theme.json
  * - tool-icons/tool-icons.json
  *
