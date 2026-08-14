@@ -850,6 +850,8 @@
   "settings.agents.externalHarness": "External Harness",
   "settings.agents.generation": "gen {{n}}",
   "settings.agents.harness": "Harness",
+  "settings.agents.idInvalid": "IDs must start with a lowercase letter and contain only lowercase letters, digits, and hyphens (^[a-z][a-z0-9-]{0,63}$)",
+  "settings.agents.idLabel": "Agent ID",
   "settings.agents.identity": "Identity",
   "settings.agents.llmConnection": "LLM Connection",
   "settings.agents.model": "Model",

@@ -73,25 +73,25 @@ export function registerAgentsHandlers(server: RpcServer, deps: HandlerDeps): vo
     }
   })
 
-  server.handle(RPC_CHANNELS.agents.UPDATE, async (_ctx, agentId: string, input: UpdateAgentInput) => {
+  server.handle(RPC_CHANNELS.agents.UPDATE, async (_ctx, agentId: string, input: UpdateAgentInput, expectedRecordVersion?: number) => {
     try {
-      return updateAgent(agentId, input)
+      return updateAgent(agentId, input, expectedRecordVersion)
     } catch (e) {
       throw bindingErrorToRpc(e)
     }
   })
 
-  server.handle(RPC_CHANNELS.agents.RETIRE, async (_ctx, agentId: string) => {
+  server.handle(RPC_CHANNELS.agents.RETIRE, async (_ctx, agentId: string, expectedRecordVersion?: number) => {
     try {
-      return retireAgent(agentId)
+      return retireAgent(agentId, expectedRecordVersion)
     } catch (e) {
       throw bindingErrorToRpc(e)
     }
   })
 
-  server.handle(RPC_CHANNELS.agents.RESTORE, async (_ctx, agentId: string) => {
+  server.handle(RPC_CHANNELS.agents.RESTORE, async (_ctx, agentId: string, expectedRecordVersion?: number) => {
     try {
-      return restoreAgent(agentId)
+      return restoreAgent(agentId, expectedRecordVersion)
     } catch (e) {
       throw bindingErrorToRpc(e)
     }

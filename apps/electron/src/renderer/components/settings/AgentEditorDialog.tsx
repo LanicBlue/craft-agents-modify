@@ -55,6 +55,9 @@ const PERMISSION_OPTIONS: PermissionMode[] = ['safe', 'ask', 'allow-all']
 const HARNESS_OPTIONS = ['codex', 'claude', 'kimi'] as const
 const CONFIG_MODE_OPTIONS = ['local-inherit', 'managed'] as const
 
+/** Stable id format (Issue #2) — server-side validation is authoritative. */
+const AGENT_ID_PATTERN = /^[a-z][a-z0-9-]{0,63}$/
+
 /**
  * P0 scope (#15/#17): the editor only exposes craft-backend. External-harness
  * execution stays a first-class citizen in the domain model, but the P0 UI
@@ -88,6 +91,7 @@ export function AgentEditorDialog({
 
   // --- Form state ---
   const [name, setName] = React.useState('')
+  const [agentId, setAgentId] = React.useState('')
   const [description, setDescription] = React.useState('')
   // 'external-harness' only ever appears when EDITING an agent whose latest
   // revision already uses it — never selectable, never editable (read-only).
@@ -105,6 +109,7 @@ export function AgentEditorDialog({
   const [isLoadingRevision, setIsLoadingRevision] = React.useState(false)
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [isSaving, setIsSaving] = React.useState(false)
+  const [saveError, setSaveError] = React.useState<string | null>(null)
 
   // --- Runtime binding diagnostics (edit mode only, read-only) ---
   interface BindingRow {
@@ -154,6 +159,7 @@ export function AgentEditorDialog({
   React.useEffect(() => {
     if (!open) return
     setName(agent?.name ?? '')
+    setAgentId('')
     setDescription(agent?.description ?? '')
     setSystemPrompt('')
     setKind(EDITOR_KIND)
@@ -166,6 +172,7 @@ export function AgentEditorDialog({
     setSources('')
     setRevision(null)
     setLoadError(null)
+    setSaveError(null)
 
     if (!agent) return
     setIsLoadingRevision(true)
@@ -215,9 +222,13 @@ export function AgentEditorDialog({
   const hasConfigChange =
     executionChanged || systemPromptChanged || thinkingLevelChanged || permissionModeChanged || sourcesChanged
 
+  // --- Client-side id validation (create mode only; server is authoritative) ---
+  const trimmedId = agentId.trim()
+  const idInvalid = !isEdit && trimmedId.length > 0 && !AGENT_ID_PATTERN.test(trimmedId)
+
   const canSave = isEdit
     ? metadataChanged || hasConfigChange
-    : name.trim().length > 0 && systemPrompt.trim().length > 0
+    : name.trim().length > 0 && systemPrompt.trim().length > 0 && trimmedId.length > 0 && !idInvalid
 
   const buildExecution = (): AgentExecutionConfig => {
     if (kind === 'craft-backend') {
@@ -238,12 +249,11 @@ export function AgentEditorDialog({
   const handleSave = async () => {
     if (!canSave || isSaving) return
     setIsSaving(true)
+    setSaveError(null)
     try {
       if (!isEdit) {
         const input: CreateAgentInput = {
-          // Stable id: R2a makes ids caller-supplied; the editor id field
-          // ships with R2b — until then a generated valid id is used.
-          id: `a-${Math.random().toString(36).slice(2, 10)}`,
+          id: trimmedId,
           name: name.trim(),
           systemPrompt: systemPrompt.trim(),
           execution: buildExecution(),
@@ -269,6 +279,10 @@ export function AgentEditorDialog({
         await update(agent!.id, updates)
       }
       onSaved()
+    } catch (err) {
+      // Surface server-side errors verbatim (e.g. AGENT_ID_INVALID from the
+      // authoritative storage validation) — never silently normalize.
+      setSaveError(err instanceof Error ? err.message : 'Failed to save agent')
     } finally {
       setIsSaving(false)
     }
@@ -303,12 +317,24 @@ export function AgentEditorDialog({
             {loadError && (
               <p className="text-sm text-destructive">{loadError}</p>
             )}
+            {saveError && (
+              <p className="text-sm text-destructive">{saveError}</p>
+            )}
 
             {/* Identity */}
             <div className="space-y-3">
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
                 {t('settings.agents.identity')}
               </p>
+              {!isEdit && (
+                <SettingsInput
+                  label={t('settings.agents.idLabel')}
+                  value={agentId}
+                  onChange={setAgentId}
+                  placeholder={t('settings.agents.idLabel')}
+                  error={idInvalid ? t('settings.agents.idInvalid') : undefined}
+                />
+              )}
               <SettingsInput
                 label={t('settings.agents.name')}
                 value={name}

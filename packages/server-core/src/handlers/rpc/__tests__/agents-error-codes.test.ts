@@ -97,6 +97,20 @@ if (RUNNER_MODE) {
     } catch (err) {
       result.retiredCode = (err as { code?: string }).code ?? null
     }
+
+    // Invalid id via RPC CREATE surfaces as AGENT_ID_INVALID (Issue #2).
+    try {
+      await client.invoke('agents:create', {
+        id: 'Invalid_Id',
+        name: 'Bad Id Agent',
+        execution: { kind: 'craft-backend' },
+        systemPrompt: 'You are a bad id agent.',
+      })
+      result.invalidIdCode = null
+    } catch (err) {
+      result.invalidIdCode = (err as { code?: string }).code ?? null
+      result.invalidIdMessage = (err as { message?: string }).message ?? ''
+    }
   } finally {
     client.destroy()
     await server.close()
@@ -128,6 +142,9 @@ describe('agent error codes over RPC (real handlers, real transport)', () => {
       const out = JSON.parse(spawned.stdout.toString()) as Record<string, unknown>
       expect(out.notFoundCode).toBe('AGENT_NOT_FOUND')
       expect(out.retiredCode).toBe('AGENT_RETIRED')
+      // Invalid id through the CREATE channel keeps its structured code.
+      expect(out.invalidIdCode).toBe('AGENT_ID_INVALID')
+      expect(String(out.invalidIdMessage)).toContain('Invalid agent id')
       // Message stays human-readable — never a JSON blob.
       expect(String(out.notFoundMessage)).toContain('Agent not found')
       expect(String(out.notFoundMessage)).not.toContain('{')

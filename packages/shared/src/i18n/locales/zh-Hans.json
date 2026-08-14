@@ -850,6 +850,8 @@
   "settings.agents.externalHarness": "外部 Harness",
   "settings.agents.generation": "代数 {{n}}",
   "settings.agents.harness": "Harness",
+  "settings.agents.idInvalid": "ID 必须以小写字母开头，仅可包含小写字母、数字和连字符（^[a-z][a-z0-9-]{0,63}$）",
+  "settings.agents.idLabel": "Agent ID",
   "settings.agents.identity": "身份",
   "settings.agents.llmConnection": "LLM 连接",
   "settings.agents.model": "模型",
