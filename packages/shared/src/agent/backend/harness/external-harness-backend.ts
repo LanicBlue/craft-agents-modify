@@ -17,7 +17,7 @@ import type { FileAttachment } from '../../../utils/files.ts';
 import { BaseAgent } from '../../base-agent.ts';
 import { AbortReason, type BackendConfig, type ChatOptions, type PostInitResult } from '../types.ts';
 import type { LLMQueryRequest, LLMQueryResult } from '../../llm-tool.ts';
-import type { HarnessDriver, HarnessEvent, HarnessSession, HarnessType } from './types.ts';
+import type { HarnessDriver, HarnessEvent, HarnessCreateArgs, HarnessSession, HarnessType } from './types.ts';
 import { debug } from '../../../utils/debug.ts';
 
 export interface ExternalHarnessBackendConfig extends BackendConfig {
@@ -87,14 +87,23 @@ export class ExternalHarnessBackend extends BaseAgent {
    * Resume when a native session id is already persisted (restart recovery).
    */
   async postInit(): Promise<PostInitResult> {
-    const base = {
+    const isLocalInherit = this.configMode === 'local-inherit';
+
+    const base: HarnessCreateArgs = {
       workspaceRootPath: this.config.workspace.rootPath,
-      systemPrompt: this.systemPrompt,
-      model: this.config.model,
       workingDirectory: this.workingDirectory,
-      permissionMode: this.config.session?.permissionMode,
-      thinkingLevel: this.config.thinkingLevel,
-      enabledSourceSlugs: this.config.session?.enabledSourceSlugs,
+      configMode: this.configMode,
+      // For local-inherit: omit systemPrompt, model, etc. — the harness uses its own local config.
+      // For managed (default): pass all configuration explicitly.
+      ...(isLocalInherit
+        ? {}
+        : {
+            systemPrompt: this.systemPrompt,
+            model: this.config.model,
+            permissionMode: this.config.session?.permissionMode,
+            thinkingLevel: this.config.thinkingLevel,
+            enabledSourceSlugs: this.config.session?.enabledSourceSlugs,
+          }),
     };
 
     const nativeSessionId = this.config.session?.sdkSessionId;

@@ -252,9 +252,12 @@ export class CodexDriver implements HarnessDriver {
 
     const init: Record<string, unknown> = {
       type: 'init',
-      systemPrompt: args.systemPrompt,
-      ...(args.model !== undefined ? { model: args.model } : {}),
       workingDirectory: args.workingDirectory ?? args.workspaceRootPath,
+      ...(args.configMode !== undefined ? { configMode: args.configMode } : {}),
+      ...(args.systemPrompt !== undefined ? { systemPrompt: args.systemPrompt } : {}),
+      ...(args.model !== undefined ? { model: args.model } : {}),
+      ...(args.permissionMode !== undefined ? { permissionMode: args.permissionMode } : {}),
+      ...(args.thinkingLevel !== undefined ? { thinkingLevel: args.thinkingLevel } : {}),
     };
     if (nativeSessionId !== undefined) {
       init.nativeSessionId = nativeSessionId;

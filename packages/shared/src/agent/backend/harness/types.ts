@@ -36,12 +36,15 @@ export type HarnessEvent =
 /** Arguments for creating a new harness session */
 export interface HarnessCreateArgs {
   workspaceRootPath: string
-  systemPrompt: string
+  /** Omitted for 'local-inherit' mode — the harness uses its own local config. */
+  systemPrompt?: string
   model?: string
   workingDirectory?: string
   permissionMode?: string
   thinkingLevel?: string
   enabledSourceSlugs?: string[]
+  /** 'local-inherit': harness uses its own local config. 'managed': Craft provides all config. */
+  configMode?: 'local-inherit' | 'managed'
 }
 
 /** Arguments for resuming an existing harness session */
