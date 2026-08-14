@@ -37,6 +37,7 @@ import type {
   SessionStatus,
 } from './types.ts';
 import type { AgentProfileSnapshot } from '../agents/types.ts';
+import { unbindBySessionId } from '../agents/bindings.ts';
 import type { Plan } from '../agent/plan-types.ts';
 import { validateSessionStatus } from '../statuses/validation.ts';
 import { debug } from '../utils/debug.ts';
@@ -184,6 +185,7 @@ export async function createSession(
     enabledSourceSlugs?: string[];
     model?: string;
     llmConnection?: string;
+    thinkingLevel?: SessionConfig['thinkingLevel'];
     hidden?: boolean;
     sessionStatus?: SessionConfig['sessionStatus'];
     labels?: string[];
@@ -224,6 +226,7 @@ export async function createSession(
     enabledSourceSlugs: options?.enabledSourceSlugs,
     model: options?.model,
     llmConnection: options?.llmConnection,
+    thinkingLevel: options?.thinkingLevel,
     hidden: options?.hidden,
     sessionStatus: options?.sessionStatus,
     labels: options?.labels,
@@ -455,6 +458,9 @@ export function deleteSession(workspaceRootPath: string, sessionId: string): boo
     if (existsSync(sessionDir)) {
       rmSync(sessionDir, { recursive: true });
     }
+
+    // Unbind any agent session binding pointing to this session (best-effort)
+    unbindBySessionId(workspaceRootPath, sessionId);
 
     return true;
   } catch {
