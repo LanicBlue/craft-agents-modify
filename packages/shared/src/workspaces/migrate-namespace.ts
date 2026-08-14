@@ -22,6 +22,7 @@ import { join } from 'path';
 // NOTE: circular import with ./storage.ts is safe — WORKSPACE_NAMESPACE is only
 // accessed inside function bodies, never at module initialization time.
 import { WORKSPACE_NAMESPACE } from './storage.ts';
+import { atomicWriteFileSync } from '../utils/files.ts';
 import { debug } from '../utils/debug.ts';
 
 // Legacy root-level items migrated into .craft-agent/ (in order).
@@ -52,6 +53,34 @@ const LEGACY_DIRS = ['sessions', 'sources', 'skills', 'statuses', 'labels', 'pro
 const CRITICAL_SUBDIRS = ['sessions', 'sources', 'skills', 'statuses', 'labels'];
 
 /**
+ * Migration completion marker (Issue #16 audit): written atomically AFTER all
+ * items are moved and validated — the single commit point of the migration.
+ * Existence of the marker means the namespace switch is complete; legacy root
+ * files appearing later are treated as unrelated user files.
+ */
+const MIGRATION_MARKER_FILE = '.migrated.json';
+const MIGRATION_MARKER_SCHEMA_VERSION = 1;
+
+interface MigrationMarker {
+  schemaVersion: number;
+  completedAt: number;
+  /** Destinations actually migrated by the run that wrote the marker */
+  items: string[];
+}
+
+function writeMigrationMarker(nsDir: string, items: string[]): void {
+  const marker: MigrationMarker = {
+    schemaVersion: MIGRATION_MARKER_SCHEMA_VERSION,
+    completedAt: Date.now(),
+    items,
+  };
+  atomicWriteFileSync(
+    join(nsDir, MIGRATION_MARKER_FILE),
+    JSON.stringify(marker, null, 2)
+  );
+}
+
+/**
  * Ensure critical namespace subdirectories exist for writers that don't
  * create their own parent directories (event-logger, history-store, views...).
  */
@@ -67,35 +96,47 @@ function ensureCriticalSubdirs(namespaceDir: string): void {
 /**
  * Idempotently migrate a workspace from the legacy root-level layout to the
  * .craft-agent/ namespace layout. Safe to call on every load; no-ops quickly
- * for migrated or fresh workspaces.
+ * for migrated or fresh workspaces (single stat on the marker file).
  *
- * Conflict policy: when .craft-agent/ already holds content AND legacy layout
- * files still exist at the root, migration aborts with an explicit warning
- * instead of merging (never overwrites or touches existing content). Empty
- * namespaces and already-migrated workspaces are unaffected.
+ * State machine (Issue #16 audit):
+ *   1. Marker present → completed; return immediately. Legacy root files that
+ *      reappear afterwards are unrelated user files — never touched.
+ *   2. No marker + no legacy → fresh or old-code-migrated workspace: ensure
+ *      namespace + critical subdirs, backfill the marker (no data touched).
+ *   3. No marker + legacy + (namespace missing or empty) → normal migration:
+ *      per-item rename (skip when destination exists), then validate every
+ *      item that had a source (destination present, source gone). On failure
+ *      (e.g. a move failed): NO marker, debug log, return — retried on next
+ *      load. On success: write the marker (the commit point), ensure .gitignore.
+ *   4. No marker + legacy + non-empty namespace → interrupted-migration
+ *      detection: when every namespace entry is a migration destination or
+ *      critical subdir, resume (case 3 logic). Unknown entries keep the
+ *      explicit conflict behavior — warn, touch nothing, no marker.
  *
  * @param rootPath - Absolute path to workspace root folder
  */
 export function ensureWorkspaceNamespace(rootPath: string): void {
   const nsDir = join(rootPath, WORKSPACE_NAMESPACE);
-  const nsConfig = join(nsDir, 'workspace.json');
-  const legacyConfig = join(rootPath, 'config.json');
+  const markerPath = join(nsDir, MIGRATION_MARKER_FILE);
+
+  // State 1: migration already completed — the marker is the commit point.
+  if (existsSync(markerPath)) return;
 
   const hasLegacy =
-    existsSync(legacyConfig) || LEGACY_DIRS.some((d) => existsSync(join(rootPath, d)));
+    existsSync(join(rootPath, 'config.json')) ||
+    LEGACY_DIRS.some((d) => existsSync(join(rootPath, d)));
 
-  // Fast path 1: already migrated (namespaced config present, no legacy config).
-  if (existsSync(nsConfig) && !existsSync(legacyConfig)) return;
-
-  // Fast path 2: fresh workspace / non-workspace directory — nothing to migrate.
-  // Only ensure the namespace exists for future writers. Best-effort: never
-  // throw from a read path (e.g. read-only or invalid roots).
+  // State 2: fresh workspace / non-workspace directory — nothing to migrate.
+  // Only ensure the namespace exists for future writers and backfill the
+  // marker so the fast path applies from now on. Best-effort: never throw
+  // from a read path (e.g. read-only or invalid roots).
   if (!hasLegacy) {
     try {
       if (!existsSync(nsDir)) {
         mkdirSync(nsDir, { recursive: true });
       }
       ensureCriticalSubdirs(nsDir);
+      writeMigrationMarker(nsDir, []);
     } catch (err) {
       debug(
         `[migrate-namespace] Could not ensure namespace at ${nsDir}: ${err instanceof Error ? err.message : String(err)}`
@@ -106,19 +147,30 @@ export function ensureWorkspaceNamespace(rootPath: string): void {
 
   debug(`[migrate-namespace] Migrating legacy layout at ${rootPath}`);
 
-  // Check for conflict: .craft-agent/ already has content AND legacy files exist
+  // State 4 gate: non-empty namespace with legacy files — distinguish an
+  // interrupted migration (resume) from unrelated content (explicit conflict).
   if (existsSync(nsDir)) {
     const nsContents = readdirSync(nsDir);
     if (nsContents.length > 0) {
-      // Explicit conflict: refuse to merge into pre-existing namespace content
-      console.warn(
-        `[craft-agent] Workspace namespace conflict at ${rootPath}:\n` +
-        `  .craft-agent/ already contains ${nsContents.length} item(s): ${nsContents.slice(0, 5).join(', ')}${nsContents.length > 5 ? '...' : ''}\n` +
-        `  Legacy files also present at workspace root.\n` +
-        `  Migration skipped to avoid overwriting existing content.\n` +
-        `  Manual resolution required: move legacy files into .craft-agent/ or remove them.`
-      );
-      return;  // Abort migration entirely
+      const allowed = new Set([
+        ...MIGRATION_ITEMS.map((item) => item.to),
+        ...CRITICAL_SUBDIRS,
+      ]);
+      const unknown = nsContents.filter((entry) => !allowed.has(entry));
+      if (unknown.length > 0) {
+        // Explicit conflict: refuse to merge into pre-existing namespace content
+        console.warn(
+          `[craft-agent] Workspace namespace conflict at ${rootPath}:\n` +
+          `  .craft-agent/ already contains ${nsContents.length} item(s): ${nsContents.slice(0, 5).join(', ')}${nsContents.length > 5 ? '...' : ''}\n` +
+          `  Legacy files also present at workspace root.\n` +
+          `  Migration skipped to avoid overwriting existing content.\n` +
+          `  Manual resolution required: move legacy files into .craft-agent/ or remove them.`
+        );
+        return; // Abort migration entirely, no marker
+      }
+      // Every entry is a migration destination or critical subdir → the
+      // previous run crashed mid-migration; resume below.
+      debug(`[migrate-namespace] Resuming interrupted migration at ${rootPath}`);
     }
   }
 
@@ -135,12 +187,17 @@ export function ensureWorkspaceNamespace(rootPath: string): void {
     }
   }
 
+  // Track items that had a legacy source so completion validation below can
+  // require their destination.
+  const sourceExisted = new Set<string>();
+
   for (const item of MIGRATION_ITEMS) {
     const fromPath = join(rootPath, item.from);
     const toPath = join(nsDir, item.to);
 
     // Nothing at the legacy location — normal, skip.
     if (!existsSync(fromPath)) continue;
+    sourceExisted.add(item.to);
 
     // Conflict: namespace already holds this item — never overwrite it.
     if (existsSync(toPath)) {
@@ -165,6 +222,29 @@ export function ensureWorkspaceNamespace(rootPath: string): void {
   }
 
   ensureCriticalSubdirs(nsDir);
+
+  // Completion validation: every item that had a source must have reached its
+  // destination and no legacy source may remain. On any failure: NO marker —
+  // the migration retries on the next load (never a false "completed").
+  const migratedDestinations: string[] = [];
+  let incomplete = false;
+  for (const item of MIGRATION_ITEMS) {
+    if (!sourceExisted.has(item.to)) continue;
+    migratedDestinations.push(item.to);
+    if (!existsSync(join(nsDir, item.to))) {
+      incomplete = true;
+    }
+    if (existsSync(join(rootPath, item.from))) {
+      incomplete = true;
+    }
+  }
+  if (incomplete) {
+    debug(`[migrate-namespace] Migration incomplete at ${rootPath}; retrying on next load`);
+    return;
+  }
+
+  // Commit point: only after validation passes.
+  writeMigrationMarker(nsDir, migratedDestinations);
   ensureGitIgnore(rootPath);
 }
 
