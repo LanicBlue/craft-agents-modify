@@ -33,7 +33,7 @@ export const meta: DetailsPageMeta = {
 
 export default function AgentsSettingsPage() {
   const { t } = useTranslation()
-  const { agents, isLoading, error, refresh, create, update, getLatestRevision } = useAgents({
+  const { agents, isLoading, error, refresh, create, update, retire, restore, getLatestRevision } = useAgents({
     includeRetired: true,
   })
   const [showCreate, setShowCreate] = React.useState(false)
@@ -121,11 +121,44 @@ export default function AgentsSettingsPage() {
                             </>
                           }
                           trailing={
-                            <span className="text-xs text-muted-foreground">
-                              {formatDistanceToNowStrict(new Date(agent.updatedAt), {
-                                locale: shortTimeLocale as Locale,
-                                roundingMethod: 'floor',
-                              })}
+                            <span className="flex items-center gap-2">
+                              <span className="text-xs text-muted-foreground">
+                                {formatDistanceToNowStrict(new Date(agent.updatedAt), {
+                                  locale: shortTimeLocale as Locale,
+                                  roundingMethod: 'floor',
+                                })}
+                              </span>
+                              {agent.status === 'active' ? (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-xs hover:text-destructive"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    if (
+                                      window.confirm(
+                                        `${t('settings.agents.retireConfirm')} (${agent.name})`
+                                      )
+                                    ) {
+                                      retire(agent.id)
+                                    }
+                                  }}
+                                >
+                                  {t('settings.agents.retire')}
+                                </Button>
+                              ) : (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-xs"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    restore(agent.id)
+                                  }}
+                                >
+                                  {t('settings.agents.restore')}
+                                </Button>
+                              )}
                             </span>
                           }
                           showSeparator={index > 0}

@@ -836,6 +836,7 @@
   "settings.about.version": "版本",
 
 
+
   "settings.agents.active": "活跃",
   "settings.agents.agentList": "智能体配置",
   "settings.agents.configMode": "配置模式",
@@ -855,6 +856,9 @@
   "settings.agents.new": "新建智能体",
   "settings.agents.noAgents": "尚未配置智能体",
   "settings.agents.permissionMode": "权限模式",
+  "settings.agents.restore": "('Restore', '恢复')",
+  "settings.agents.retire": "('Retire', '停用')",
+  "settings.agents.retireConfirm": "('Retire this agent? It can be restored later.', '停用此智能体？之后可以恢复。')",
   "settings.agents.retired": "已停用",
   "settings.agents.revision": "修订版",
   "settings.agents.role": "角色",
