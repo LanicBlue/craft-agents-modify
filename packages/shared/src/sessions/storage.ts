@@ -36,6 +36,7 @@ import type {
   SessionHeader,
   SessionStatus,
 } from './types.ts';
+import type { AgentProfileSnapshot } from '../agents/types.ts';
 import type { Plan } from '../agent/plan-types.ts';
 import { validateSessionStatus } from '../statuses/validation.ts';
 import { debug } from '../utils/debug.ts';
@@ -193,6 +194,9 @@ export async function createSession(
     taskRunId?: string;
     taskNodeId?: string;
     taskDraft?: boolean;
+    agentId?: string;
+    agentProfileRevision?: number;
+    agentProfileSnapshot?: AgentProfileSnapshot;
   }
 ): Promise<SessionConfig> {
   ensureSessionsDir(workspaceRootPath);
@@ -230,6 +234,9 @@ export async function createSession(
     taskRunId: options?.taskRunId,
     taskNodeId: options?.taskNodeId,
     taskDraft: options?.taskDraft,
+    agentId: options?.agentId,
+    agentProfileRevision: options?.agentProfileRevision,
+    agentProfileSnapshot: options?.agentProfileSnapshot,
   };
 
   // Save empty session
@@ -417,7 +424,10 @@ function headerToMetadata(header: SessionHeader, workspaceRootPath: string): Ses
     const {
       pendingPlanExecution: _pp,
       sessionStatus: _ss, workingDirectory: _wd, sdkCwd: _sc,
-      workspaceRootPath: _wrp, ...headerFields
+      workspaceRootPath: _wrp,
+      // SessionMetadata carries only agentId (not revision/snapshot)
+      agentProfileRevision: _apr, agentProfileSnapshot: _aps,
+      ...headerFields
     } = header;
 
     return {
@@ -554,6 +564,7 @@ export async function updateSessionMetadata(
     | 'isArchived'
     | 'archivedAt'
     | 'projectId'
+    | 'agentId'
   >>
 ): Promise<void> {
   const session = loadSession(workspaceRootPath, sessionId);
@@ -576,6 +587,7 @@ export async function updateSessionMetadata(
   if (updates.isArchived !== undefined) session.isArchived = updates.isArchived;
   if ('archivedAt' in updates) session.archivedAt = updates.archivedAt;
   if ('projectId' in updates) session.projectId = updates.projectId;
+  if (updates.agentId !== undefined) session.agentId = updates.agentId;
 
   await saveSession(session);
 }

@@ -12,6 +12,7 @@
 import type { PermissionMode } from '../agent/mode-manager.ts';
 import type { ThinkingLevel } from '../agent/thinking-levels.ts';
 import type { StoredAttachment, MessageRole, ToolStatus, AuthRequestType, AuthStatus, CredentialInputMode, StoredMessage } from '@craft-agent/core/types';
+import type { AgentProfileSnapshot } from '../agents/types.ts';
 
 /**
  * Session fields that persist to disk.
@@ -64,6 +65,10 @@ export const SESSION_PERSISTENT_FIELDS = [
   'taskNodeId',
   'taskNodeCount',
   'taskDraft',
+  // Agent identity (Issue #3)
+  'agentId',
+  'agentProfileRevision',
+  'agentProfileSnapshot',
 ] as const;
 
 export type SessionPersistentField = typeof SESSION_PERSISTENT_FIELDS[number];
@@ -224,6 +229,12 @@ export interface SessionConfig {
   taskNodeCount?: number;
   /** Tasks Conductor: generate-time draft orchestrator. Hidden from the board until adopted (promoted) by createTask. */
   taskDraft?: boolean;
+  /** Agent identity this session was materialized from (undefined = no agent). */
+  agentId?: string;
+  /** AgentProfileRevision number at materialization time. */
+  agentProfileRevision?: number;
+  /** Immutable resolved configuration snapshot at materialization time. */
+  agentProfileSnapshot?: AgentProfileSnapshot;
 }
 
 /**
@@ -331,6 +342,12 @@ export interface SessionHeader {
   taskNodeCount?: number;
   /** Tasks Conductor: generate-time draft orchestrator. Hidden from the board until adopted (promoted) by createTask. */
   taskDraft?: boolean;
+  /** Agent identity this session was materialized from (undefined = no agent). */
+  agentId?: string;
+  /** AgentProfileRevision number at materialization time. */
+  agentProfileRevision?: number;
+  /** Immutable resolved configuration snapshot at materialization time. */
+  agentProfileSnapshot?: AgentProfileSnapshot;
   // Pre-computed fields for fast list loading
   /** Number of messages in session */
   messageCount: number;
@@ -427,4 +444,6 @@ export interface SessionMetadata {
   taskNodeCount?: number;
   /** Tasks Conductor: generate-time draft orchestrator. Hidden from the board until adopted (promoted) by createTask. */
   taskDraft?: boolean;
+  /** Agent identity this session was materialized from (undefined = no agent). */
+  agentId?: string;
 }

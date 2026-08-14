@@ -69,6 +69,20 @@ export type AgentExecutionConfig =
     };
 
 /**
+ * Resolved immutable agent configuration snapshot stored in a Session.
+ * Created at session materialization time from an AgentProfileRevision.
+ * Survives restart; never silently updated when AgentProfile changes.
+ */
+export interface AgentProfileSnapshot {
+  execution: AgentExecutionConfig;
+  model?: string;
+  thinkingLevel?: ThinkingLevel;
+  permissionMode?: PermissionMode;
+  systemPrompt: string;
+  enabledSourceSlugs?: string[];
+}
+
+/**
  * Input for creating a new agent. The agentId is generated internally and can
  * never be supplied by the caller.
  */

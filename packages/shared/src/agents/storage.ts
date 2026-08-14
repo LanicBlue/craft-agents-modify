@@ -29,6 +29,7 @@ import { debug } from '../utils/debug.ts';
 import type {
   AgentRecord,
   AgentProfileRevision,
+  AgentProfileSnapshot,
   AgentRegistry,
   CreateAgentInput,
   UpdateAgentInput,
@@ -214,6 +215,33 @@ export function listRevisions(agentId: string): AgentProfileRevision[] {
 // ============================================================
 // CRUD Operations
 // ============================================================
+
+/**
+ * Resolve an immutable configuration snapshot from an AgentProfileRevision.
+ * Used at session materialization time (Issue #4 ensureAgentSession).
+ */
+export function resolveAgentSnapshot(
+  revision: AgentProfileRevision
+): AgentProfileSnapshot {
+  const snapshot: AgentProfileSnapshot = {
+    execution: revision.execution,
+    systemPrompt: revision.systemPrompt,
+  };
+  // Resolve model from execution config
+  if (revision.execution.model !== undefined) {
+    snapshot.model = revision.execution.model;
+  }
+  if (revision.thinkingLevel !== undefined) {
+    snapshot.thinkingLevel = revision.thinkingLevel;
+  }
+  if (revision.permissionMode !== undefined) {
+    snapshot.permissionMode = revision.permissionMode;
+  }
+  if (revision.enabledSourceSlugs !== undefined) {
+    snapshot.enabledSourceSlugs = revision.enabledSourceSlugs;
+  }
+  return snapshot;
+}
 
 /**
  * Create a new agent: generates a fresh immutable agentId, writes revision 1,
