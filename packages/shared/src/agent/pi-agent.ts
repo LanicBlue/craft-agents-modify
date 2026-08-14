@@ -2037,6 +2037,7 @@ export class PiAgent extends BaseAgent {
         'Craft Agents Backend', // backendName
         getCoAuthorPreference(), // respect user's includeCoAuthoredBy preference (#576)
         projectContext ?? undefined,
+        this.config.agentSystemPrompt, // agent-role block from the materialized snapshot (#3)
       );
 
       // Build context from sources

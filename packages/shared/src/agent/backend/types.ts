@@ -197,6 +197,13 @@ export interface CoreBackendConfig {
   /** System prompt preset ('default' | 'mini' | custom string) */
   systemPromptPreset?: 'default' | 'mini' | string;
 
+  /**
+   * Immutable agent-role prompt from the materialized AgentProfileSnapshot
+   * (#3). Injected into the system prompt as a marked <agent_role> block;
+   * absent for non-agent sessions (zero prompt change).
+   */
+  agentSystemPrompt?: string;
+
   /** Workspace-level automation system for user-defined automations (automations.json) */
   automationSystem?: AutomationSystem;
 

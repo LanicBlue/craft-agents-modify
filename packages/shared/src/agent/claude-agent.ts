@@ -1245,6 +1245,7 @@ export class ClaudeAgent extends BaseAgent {
                 undefined, // backendName
                 this.pinnedIncludeCoAuthoredBy ?? undefined,
                 this.pinnedProjectContext ?? undefined,
+                this.config.agentSystemPrompt,
               ),
             },
         // Use sdkCwd for SDK session storage - this is set once at session creation and never changes.

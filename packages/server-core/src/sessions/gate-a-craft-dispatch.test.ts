@@ -42,6 +42,7 @@ const createdBackends: Array<{
     thinkingLevel?: string;
     session?: { id: string; agentId?: string; model?: string; permissionMode?: string };
     initialSources?: { enabledSlugs: string[] };
+    agentSystemPrompt?: string;
   };
 }> = [];
 
@@ -121,6 +122,7 @@ mock.module('@craft-agent/shared/agent/backend', () => ({
         thinkingLevel?: string;
         session?: { id: string; agentId?: string; model?: string; permissionMode?: string };
         initialSources?: { enabledSlugs: string[] };
+        agentSystemPrompt?: string;
       };
       hostRuntime: unknown;
     }) => {
@@ -133,7 +135,7 @@ mock.module('@craft-agent/shared/agent/backend', () => ({
 
 import { SessionManager, setSessionPlatform } from './SessionManager.ts';
 import { CONSOLE_LOGGER } from '@craft-agent/server-core/runtime';
-import { createAgent, ensureAgentSession } from '@craft-agent/shared/agents';
+import { createAgent, ensureAgentSession, updateAgent } from '@craft-agent/shared/agents';
 import { loadSession, sessionPersistenceQueue } from '@craft-agent/shared/sessions';
 import type { Workspace } from '@craft-agent/shared/config';
 
@@ -307,5 +309,44 @@ describe('Gate A: craft-backend real dispatch', () => {
     const texts = after!.messages.map((m) => m.content ?? '');
     expect(texts.some((t) => t.includes('incarnation one'))).toBe(true);
     expect(texts.some((t) => t.includes('incarnation two'))).toBe(true);
+  });
+
+  it('agentSystemPrompt flows from the stored snapshot across restarts (#3)', async () => {
+    const agent = createAgent({
+      name: 'Craft A Role Agent',
+      execution: { kind: 'craft-backend', llmConnection: 'anthropic', model: 'claude-opus-4-8' },
+      systemPrompt: 'You are the role-A agent.',
+    });
+    const session = await ensureAgentSession(wsRoot, workspace.id, agent.id);
+
+    // First incarnation: creation args carry the snapshot prompt (A).
+    const sm1 = new SessionManager();
+    const managed1 = sm1.adoptPersistedSession(workspace, session.id);
+    try {
+      await sm1.sendMessage(session.id, 'incarnation one');
+      await sessionPersistenceQueue.flush(session.id);
+    } finally {
+      agentRef(managed1)?.destroy();
+    }
+    expect(createdBackends.length).toBe(1);
+    expect(createdBackends[0].coreConfig.agentSystemPrompt).toBe('You are the role-A agent.');
+
+    // Agent prompt updated to B (rev 2) — stored snapshot must still win.
+    const updated = updateAgent(agent.id, { systemPrompt: 'You are the role-B agent.' });
+    expect(updated.latestRevision).toBe(2);
+
+    // Fresh SessionManager (restart + adopt): new backend creation args are
+    // still A (the snapshot), never the latest revision B.
+    const sm2 = new SessionManager();
+    const managed2 = sm2.adoptPersistedSession(workspace, session.id);
+    try {
+      await sm2.sendMessage(session.id, 'incarnation two');
+      await sessionPersistenceQueue.flush(session.id);
+    } finally {
+      agentRef(managed2)?.destroy();
+    }
+    expect(createdBackends.length).toBe(2);
+    expect(createdBackends[1].coreConfig.agentSystemPrompt).toBe('You are the role-A agent.');
+    expect(createdBackends[1].coreConfig.agentSystemPrompt).not.toBe('You are the role-B agent.');
   });
 });

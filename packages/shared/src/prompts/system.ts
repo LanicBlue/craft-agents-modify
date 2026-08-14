@@ -344,6 +344,9 @@ Use config_validate to verify changes match the expected schema.
  * @param workingDirectory - Working directory for context file discovery
  * @param preset - System prompt preset ('default' | 'mini' | custom string)
  * @param backendName - Backend name for "powered by X" text (default: 'Claude Code')
+ * @param agentSystemPrompt - Immutable agent-role prompt from the materialized
+ *   AgentProfileSnapshot (#3); injected as a marked block right after the base
+ *   prompt, before user preferences. Absent → zero byte-level change.
  */
 export function getSystemPrompt(
   pinnedPreferencesPrompt?: string,
@@ -354,6 +357,7 @@ export function getSystemPrompt(
   backendName?: string,
   includeCoAuthoredBy?: boolean,
   projectContext?: ProjectPromptContext,
+  agentSystemPrompt?: string,
 ): string {
   // Use mini agent prompt for quick edits (pass workspace root for config paths)
   if (preset === 'mini') {
@@ -379,11 +383,27 @@ export function getSystemPrompt(
   // to enable prompt caching. The system prompt stays static and cacheable.
   // Safe Mode context is also in user messages for the same reason.
   const basePrompt = getCraftAssistantPrompt(workspaceRootPath, backendName, resolvedIncludeCoAuthoredBy);
-  const fullPrompt = `${basePrompt}${preferences}${projectBlock}${debugContext}${projectContextFiles}`;
+  // Agent-role block (from the materialized AgentProfileSnapshot, #3) sits
+  // right after the base prompt so the role declaration leads, before user
+  // preferences and project context.
+  const agentBlock = agentSystemPrompt ? formatAgentRolePrompt(agentSystemPrompt) : '';
+  const fullPrompt = `${basePrompt}${agentBlock}${preferences}${projectBlock}${debugContext}${projectContextFiles}`;
 
   debug('[getSystemPrompt] full prompt length:', fullPrompt.length);
 
   return fullPrompt;
+}
+
+/**
+ * Format the agent-role block injected into the system prompt (issue #3).
+ *
+ * Wrapped in an XML-ish element so models treat it as authoritative role
+ * instruction, distinct from user preferences and project context. The body
+ * is defanged against a premature closing tag, same as project blocks.
+ */
+export function formatAgentRolePrompt(agentSystemPrompt: string): string {
+  const body = defangBlockTag(agentSystemPrompt, 'agent_role');
+  return `\n<agent_role>\n${body}\n</agent_role>\n`;
 }
 
 /**

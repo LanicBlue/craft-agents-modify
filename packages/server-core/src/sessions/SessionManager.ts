@@ -3693,6 +3693,9 @@ export class SessionManager implements ISessionManager {
         skipConfigWatcher: true, // Server owns workspace-level ConfigWatcher — don't duplicate in agents
         automationSystem: this.automationSystems.get(managed.workspace.rootPath),
         systemPromptPreset: managed.systemPromptPreset,
+        // Agent-role prompt from the materialized snapshot (#3) — injected by
+        // the backend into its system prompt as a marked block.
+        agentSystemPrompt: managed.agentProfileSnapshot?.systemPrompt,
         debugMode: _platform?.isDebugMode ? { enabled: true, logFilePath: _platform.getLogFilePath?.() } : undefined,
         enable1MContext: await (async () => { const { getEnable1MContext } = await import('@craft-agent/shared/config/storage'); return getEnable1MContext(); })(),
         // Image resize callback — prevents oversized images from entering conversation history
