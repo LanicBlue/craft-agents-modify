@@ -46,11 +46,23 @@ const MIGRATION_ITEMS: Array<{ from: string; to: string }> = [
   { from: 'theme.json', to: 'theme.json' },
 ];
 
-// Directory-type legacy items, used for legacy-layout detection.
-const LEGACY_DIRS = ['sessions', 'sources', 'skills', 'statuses', 'labels', 'projects', 'messaging'];
-
-// Critical subdirectories ensured to exist so writers never hit ENOENT.
+// Directory-type legacy items, used for critical-subdir creation below.
+// Legacy-layout detection uses MIGRATION_ITEMS (covers config.json + dirs +
+// file-type items) — see hasLegacy.
 const CRITICAL_SUBDIRS = ['sessions', 'sources', 'skills', 'statuses', 'labels'];
+
+/**
+ * Detect a legacy layout: ANY migration item (file- or directory-type) still
+ * present at the workspace root — config.json and the legacy dirs are all in
+ * MIGRATION_ITEMS, so a single pass over the list is complete. Without this,
+ * a leftover automations.json / views.json / permissions.json / events.jsonl
+ * / theme.json / automations-history.jsonl / automations-retry-queue.jsonl
+ * after config.json was already moved would be silently treated as "fresh"
+ * (false completion marker + file stranded at the root forever).
+ */
+function hasLegacyRootItems(rootPath: string): boolean {
+  return MIGRATION_ITEMS.some((item) => existsSync(join(rootPath, item.from)));
+}
 
 /**
  * Migration completion marker (Issue #16 audit): written atomically AFTER all
@@ -122,9 +134,7 @@ export function ensureWorkspaceNamespace(rootPath: string): void {
   // State 1: migration already completed — the marker is the commit point.
   if (existsSync(markerPath)) return;
 
-  const hasLegacy =
-    existsSync(join(rootPath, 'config.json')) ||
-    LEGACY_DIRS.some((d) => existsSync(join(rootPath, d)));
+  const hasLegacy = hasLegacyRootItems(rootPath);
 
   // State 2: fresh workspace / non-workspace directory — nothing to migrate.
   // Only ensure the namespace exists for future writers and backfill the
@@ -191,8 +201,10 @@ export function ensureWorkspaceNamespace(rootPath: string): void {
   }
 
   // Track items that had a legacy source so completion validation below can
-  // require their destination.
+  // require their destination. Items whose copy completed but whose source
+  // could not be deleted (cp-fallback rm failure) are tracked as stuck.
   const sourceExisted = new Set<string>();
+  const stuckItems = new Set<string>();
 
   for (const item of MIGRATION_ITEMS) {
     const fromPath = join(rootPath, item.from);
@@ -204,7 +216,20 @@ export function ensureWorkspaceNamespace(rootPath: string): void {
 
     // Conflict: namespace already holds this item — never overwrite it.
     if (existsSync(toPath)) {
-      debug(`[migrate-namespace] Skipping ${item.from} — ${item.to} already exists in namespace`);
+      // Destination present WITH source still present: this state can only
+      // come from a completed copy whose delete failed mid-commit (rename is
+      // atomic and never leaves both). The destination is a full copy, so
+      // retrying the delete completes the commit — persistent failure becomes
+      // an explicit stuck conflict instead of silent re-tries forever.
+      try {
+        rmSync(fromPath, { recursive: true, force: true });
+        debug(`[migrate-namespace] Removed leftover legacy source ${item.from} after completed copy`);
+      } catch (err) {
+        stuckItems.add(item.to);
+        debug(
+          `[migrate-namespace] Cannot remove stuck legacy source ${item.from}: ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
       continue;
     }
 
@@ -217,6 +242,12 @@ export function ensureWorkspaceNamespace(rootPath: string): void {
         cpSync(fromPath, toPath, { recursive: true });
         rmSync(fromPath, { recursive: true, force: true });
       } catch (err) {
+        // Copy completed but the source could not be removed (or the copy
+        // itself failed) — if the destination now exists the item is stuck
+        // and surfaces as an explicit conflict, never a silent retry loop.
+        if (existsSync(toPath)) {
+          stuckItems.add(item.to);
+        }
         debug(
           `[migrate-namespace] Failed to migrate ${item.from}: ${err instanceof Error ? err.message : String(err)}`
         );
@@ -225,6 +256,18 @@ export function ensureWorkspaceNamespace(rootPath: string): void {
   }
 
   ensureCriticalSubdirs(nsDir);
+
+  // Stuck sources: the copy completed but the legacy source could not be
+  // deleted. Explicit conflict — no marker, nothing else touched.
+  if (stuckItems.size > 0) {
+    console.warn(
+      `[craft-agent] Workspace migration stuck at ${rootPath}:\n` +
+      `  Copied legacy items cannot be removed from the workspace root: ${[...stuckItems].join(', ')}.\n` +
+      `  Migration skipped — no completion marker written.\n` +
+      `  Manual resolution required: remove the legacy file(s) at the workspace root or grant write permission.`
+    );
+    return;
+  }
 
   // Completion validation: every item that had a source must have reached its
   // destination and no legacy source may remain. On any failure: NO marker —

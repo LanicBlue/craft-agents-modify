@@ -18,6 +18,7 @@ import {
   existsSync,
   readdirSync,
   statSync,
+  chmodSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -185,6 +186,71 @@ describe('ensureWorkspaceNamespace (marker + recovery)', () => {
     // Legacy file untouched; unknown content untouched.
     expect(readFileSync(join(ws, 'config.json'), 'utf-8')).toContain('"config.json"');
     expect(readFileSync(join(nsDir(), 'unrelated-dir', 'x.txt'), 'utf-8')).toBe('x');
+  });
+
+  it('file-type legacy detection: automations.json alone (config already moved) triggers migration', () => {
+    // config.json already migrated into the namespace, automations.json left
+    // behind at the root — the old detector (config.json + legacy dirs only)
+    // would classify this as fresh and write a false completion marker.
+    mkdirSync(nsDir(), { recursive: true });
+    writeFileSync(join(nsDir(), 'workspace.json'), '{"migrated":true}', 'utf-8');
+    seedLegacy('automations.json');
+
+    ensureWorkspaceNamespace(ws);
+
+    // automations.json moved into the namespace and listed in the marker —
+    // never a false "completed".
+    expect(existsSync(join(ws, 'automations.json'))).toBe(false);
+    expect(existsSync(join(nsDir(), 'automations.json'))).toBe(true);
+    const marker = readMarker();
+    expect(marker.items).toContain('automations.json');
+  });
+
+  it('stuck source cleanup: dest present + source present → source removed, validation passes, marker written', () => {
+    // Crash state: copy succeeded (dest complete), delete failed — both exist.
+    mkdirSync(nsDir(), { recursive: true });
+    seedLegacy('automations.json');
+    writeFileSync(join(nsDir(), 'automations.json'), '{"legacy":"automations.json"}', 'utf-8');
+
+    ensureWorkspaceNamespace(ws);
+
+    // The leftover source is removed (completing the interrupted commit) and
+    // the migration finishes with a marker.
+    expect(existsSync(join(ws, 'automations.json'))).toBe(false);
+    expect(existsSync(join(nsDir(), 'automations.json'))).toBe(true);
+    expect(existsSync(markerPath())).toBe(true);
+    expect(readMarker().items).toContain('automations.json');
+  });
+
+  it('stuck source that cannot be deleted → explicit warn, no marker, both sides untouched', () => {
+    // Dest present + source present, and the delete keeps failing. Real-world
+    // reproduction: make the workspace root read-only so rmSync of the legacy
+    // source throws EACCES. All critical subdirs are pre-created so the
+    // migration never needs to write before the stuck check fires.
+    mkdirSync(nsDir(), { recursive: true });
+    for (const d of ['sessions', 'sources', 'skills', 'statuses', 'labels']) {
+      mkdirSync(join(nsDir(), d), { recursive: true });
+    }
+    seedLegacy('automations.json');
+    writeFileSync(join(nsDir(), 'automations.json'), '{"legacy":"automations.json"}', 'utf-8');
+    chmodSync(ws, 0o555);
+
+    const warns: string[] = [];
+    const origWarn = console.warn;
+    console.warn = (msg: string) => { warns.push(msg) };
+    try {
+      ensureWorkspaceNamespace(ws);
+    } finally {
+      console.warn = origWarn;
+      chmodSync(ws, 0o755);
+    }
+
+    // Explicit conflict: warn mentions manual resolution, no marker, and
+    // neither the source nor the destination is touched.
+    expect(warns.some((w) => w.toLowerCase().includes('manual resolution required'))).toBe(true);
+    expect(existsSync(markerPath())).toBe(false);
+    expect(existsSync(join(ws, 'automations.json'))).toBe(true);
+    expect(readFileSync(join(nsDir(), 'automations.json'), 'utf-8')).toBe('{"legacy":"automations.json"}');
   });
 
   it('marker present + legacy file reappears at root → complete no-op', () => {
