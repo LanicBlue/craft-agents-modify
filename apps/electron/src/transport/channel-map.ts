@@ -394,6 +394,21 @@ export const CHANNEL_MAP = {
   deleteProjectAsset: invoke(RPC_CHANNELS.projects.DELETE_ASSET),
   onProjectsChanged: listener(RPC_CHANNELS.projects.CHANGED),
 
+  // Agents — AgentProfile registry CRUD (global)
+  listAgents: invoke(RPC_CHANNELS.agents.LIST),
+  getAgent: invoke(RPC_CHANNELS.agents.GET),
+  createAgent: invoke(RPC_CHANNELS.agents.CREATE),
+  updateAgent: invoke(RPC_CHANNELS.agents.UPDATE),
+  retireAgent: invoke(RPC_CHANNELS.agents.RETIRE),
+  restoreAgent: invoke(RPC_CHANNELS.agents.RESTORE),
+
+  // Agent Sessions — execution control (workspace-scoped)
+  listAgentBindings: invoke(RPC_CHANNELS.agentSessions.LIST),
+  ensureAgentSession: invoke(RPC_CHANNELS.agentSessions.ENSURE),
+  dispatchAgentSession: invoke(RPC_CHANNELS.agentSessions.DISPATCH),
+  interruptAgentSession: invoke(RPC_CHANNELS.agentSessions.INTERRUPT),
+  getAgentRuntime: invoke(RPC_CHANNELS.agentSessions.GET_RUNTIME),
+
   // Automations
   getAutomations: invoke(RPC_CHANNELS.automations.GET),
   testAutomation: invoke(RPC_CHANNELS.automations.TEST),

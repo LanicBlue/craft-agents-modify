@@ -175,6 +175,9 @@ export interface TransportConnectionState {
 // Re-import types for ElectronAPI
 import type { WorkspaceInfo, Workspace, SessionMetadata, StoredAttachment as StoredAttachmentType } from '@craft-agent/core/types';
 
+// Agent profile types for ElectronAPI (from @craft-agent/shared/agents)
+import type { AgentRecord, CreateAgentInput, UpdateAgentInput, AgentSessionBinding } from '@craft-agent/shared/agents';
+
 // Import protocol types used by ElectronAPI (they come through the `export *` above,
 // but we need them in scope for the interface definition)
 import type {
@@ -669,6 +672,21 @@ export interface ElectronAPI {
   uploadProjectAsset(workspaceId: string, projectSlug: string, input: { filename: string; base64?: string; text?: string; sourcePath?: string }): Promise<import('@craft-agent/shared/projects/types').ProjectAsset>
   deleteProjectAsset(workspaceId: string, projectSlug: string, filename: string): Promise<void>
   onProjectsChanged(callback: (workspaceId: string, projects: unknown) => void): () => void
+
+  // Agents — AgentProfile registry CRUD (global)
+  listAgents(includeRetired?: boolean): Promise<AgentRecord[]>
+  getAgent(agentId: string): Promise<AgentRecord>
+  createAgent(input: CreateAgentInput): Promise<AgentRecord>
+  updateAgent(agentId: string, input: UpdateAgentInput): Promise<AgentRecord>
+  retireAgent(agentId: string): Promise<AgentRecord>
+  restoreAgent(agentId: string): Promise<AgentRecord>
+
+  // Agent Sessions — execution control (workspace-scoped)
+  listAgentBindings(workspaceId: string): Promise<AgentSessionBinding[]>
+  ensureAgentSession(workspaceId: string, agentId: string): Promise<{ sessionId: string; agentId: string; workspaceId: string }>
+  dispatchAgentSession(workspaceId: string, agentId: string, message: string): Promise<{ sessionId: string; accepted: boolean }>
+  interruptAgentSession(workspaceId: string, agentId: string): Promise<void>
+  getAgentRuntime(workspaceId: string, agentId: string): Promise<{ state?: string; canonicalSessionId?: string; generation?: number }>
 
   // Automations
   getAutomations(workspaceId: string): Promise<unknown>
