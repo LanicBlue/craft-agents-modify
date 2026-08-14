@@ -22,6 +22,7 @@ import {
   type PostInitResult,
 } from '@craft-agent/shared/agent/backend'
 import { createExternalHarnessBackend } from '@craft-agent/shared/agent/backend/harness/external-harness-backend'
+import type { AgentProfileSnapshot } from '@craft-agent/shared/agents'
 import { getLlmConnection, getLlmConnections, getDefaultLlmConnection, getDefaultThinkingLevel, resetManagedAnthropicAuthEnvVars, resolveMidStreamBehavior, getPersistedUiLanguage, resolveTitleLanguageName } from '@craft-agent/shared/config'
 import type { MidStreamBehavior } from '@craft-agent/shared/config'
 import { PrivilegedExecutionBroker } from '@craft-agent/server-core/services'
@@ -42,7 +43,6 @@ import {
 } from '@craft-agent/shared/config'
 import type { ActiveSessionInfo, SessionProcessingStatus } from '@craft-agent/core/types'
 import { loadWorkspaceConfig } from '@craft-agent/shared/workspaces'
-import { loadLatestRevision } from '@craft-agent/shared/agents'
 import {
   // Session persistence functions
   listSessions as listStoredSessions,
@@ -878,6 +878,8 @@ export interface ManagedSession {
   taskDraft?: boolean
   /** Agent identity this session was materialized from (undefined = no agent). */
   agentId?: string
+  /** Immutable snapshot the session was materialized from (#3) — authoritative for resume. */
+  agentProfileSnapshot?: AgentProfileSnapshot
   // Working directory for this session (used by agent for bash commands)
   workingDirectory?: string
   // SDK cwd for session storage - set once at creation, never changes.
@@ -3370,13 +3372,23 @@ export class SessionManager implements ISessionManager {
     // factory (resolveBackendContext / createBackendFromResolvedContext are
     // craft-backend only) and run through a registered harness driver.
     // Non-agent sessions and craft-backend agents fall through unchanged.
+    //
+    // #3 resume contract: the session's stored snapshot is authoritative —
+    // never re-resolve from the agent's latest revision. A session that claims
+    // an agentId must carry a valid snapshot; otherwise it is corrupt and
+    // requires manual resolution (no silent fallback, no re-materialization).
     if (managed.agentId) {
-      const revision = loadLatestRevision(managed.agentId)
-      if (revision?.execution.kind === 'external-harness') {
+      const snapshot = managed.agentProfileSnapshot
+      if (!snapshot) {
+        throw new Error(
+          `corrupt agent session ${managed.id}: claims agentId ${managed.agentId} but has no agent profile snapshot — manual resolution required`
+        )
+      }
+      if (snapshot.execution.kind === 'external-harness') {
         // Refresh case: an agent already exists for this session
         if (managed.agent) return managed.agent
 
-        const harness = revision.execution.harness
+        const harness = snapshot.execution.harness
         const driver = getHarnessDriver(harness)
         if (!driver) {
           throw new Error(
@@ -3393,7 +3405,7 @@ export class SessionManager implements ISessionManager {
           lastUsedAt: managed.lastMessageAt,
           workingDirectory: managed.workingDirectory,
           sdkCwd: managed.sdkCwd,
-          model: managed.model ?? revision.execution.model,
+          model: managed.model ?? snapshot.execution.model,
           permissionMode: managed.permissionMode,
           agentId: managed.agentId,
         }
@@ -3413,11 +3425,11 @@ export class SessionManager implements ISessionManager {
           session: sessionConfig,
           // Unused by external-harness backends but required by BackendConfig
           provider: 'anthropic',
-          model: managed.model ?? revision.execution.model,
+          model: managed.model ?? snapshot.execution.model,
           thinkingLevel: managed.thinkingLevel,
           harness,
-          configMode: revision.execution.configMode,
-          systemPrompt: revision.systemPrompt,
+          configMode: snapshot.execution.configMode,
+          systemPrompt: snapshot.systemPrompt,
           driver,
           onSdkSessionIdUpdate,
           isHeadless: !AGENT_FLAGS.defaultModesEnabled,

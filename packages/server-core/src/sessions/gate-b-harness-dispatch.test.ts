@@ -18,20 +18,24 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 import { SessionManager, createManagedSession } from './SessionManager.ts';
-import { createAgent } from '@craft-agent/shared/agents';
+import { createAgent, updateAgent } from '@craft-agent/shared/agents';
 import { ensureAgentSession } from '@craft-agent/shared/agents';
 import { loadSession, sessionPersistenceQueue } from '@craft-agent/shared/sessions';
 import { CodexDriver } from '@craft-agent/shared/agent/backend/harness/drivers/codex-driver';
 import { registerHarnessDriver } from '@craft-agent/shared/agent/backend/harness/registry';
 
-// Mock Codex CLI: records init mode (new vs resume) and echoes it in replies.
+// Mock Codex CLI: records init mode (new vs resume) and echoes it — plus a
+// summary of the systemPrompt received — in the reply text, so BOTH the
+// resume path and the #3 stored-snapshot contract are verified through
+// observable behavior rather than internal state.
 const MOCK_SOURCE = `
 let mode = 'new';
+let promptMarker = '';
 process.stdin.resume();
 let buffer = '';
 process.stdin.on('data', (chunk) => {
@@ -49,11 +53,12 @@ function handle(msg) {
   switch (msg.type) {
     case 'init':
       mode = msg.nativeSessionId ? 'resume' : 'new';
+      promptMarker = (msg.systemPrompt || '').split(' ').slice(0, 5).join(' ');
       process.stdout.write(JSON.stringify({ type: 'ready', sessionId: msg.nativeSessionId || ('mock-codex-' + Date.now()) }) + '\\n');
       break;
     case 'message':
       process.stdout.write(JSON.stringify({ type: 'text_delta', text: 'Hello' }) + '\\n');
-      process.stdout.write(JSON.stringify({ type: 'text_complete', text: 'Hello world (' + mode + ')' }) + '\\n');
+      process.stdout.write(JSON.stringify({ type: 'text_complete', text: 'Hello world (' + mode + ' | ' + promptMarker + ')' }) + '\\n');
       process.stdout.write(JSON.stringify({ type: 'done', usage: { inputTokens: 10, outputTokens: 5 } }) + '\\n');
       break;
     case 'shutdown':
@@ -86,6 +91,7 @@ function seedSession(sm: SessionManager, sessionId: string, name: string) {
       id: sessionId,
       name,
       agentId: stored!.agentId,
+      agentProfileSnapshot: stored!.agentProfileSnapshot,
       sdkSessionId: stored!.sdkSessionId,
       permissionMode: stored!.permissionMode ?? 'allow-all',
       thinkingLevel: stored!.thinkingLevel,
@@ -144,7 +150,7 @@ describe('Gate B: real dispatch through external-harness backend', () => {
       expect(after).not.toBeNull();
       const texts = after!.messages.map((m) => m.content ?? '');
       expect(texts.some((t) => t.includes('hello from gate b'))).toBe(true);
-      expect(texts.some((t) => t.includes('Hello world (new)'))).toBe(true);
+      expect(texts.some((t) => t.includes('Hello world (new |'))).toBe(true);
 
       // 4. Native session id persisted via onSdkSessionIdUpdate (create mode).
       expect(after!.sdkSessionId).toMatch(/^mock-codex-/);
@@ -189,12 +195,104 @@ describe('Gate B: real dispatch through external-harness backend', () => {
       await sessionPersistenceQueue.flush(session.id);
       const second = loadSession(wsRoot, session.id);
       const texts = second!.messages.map((m) => m.content ?? '');
-      expect(texts.some((t) => t.includes('Hello world (resume)'))).toBe(true);
+      expect(texts.some((t) => t.includes('Hello world (resume |'))).toBe(true);
       // Same logical session — binding not replaced.
       expect(second!.id).toBe(session.id);
       expect(second!.sdkSessionId).toBe(loadSession(wsRoot, session.id)!.sdkSessionId);
     } finally {
       (managed2 as unknown as { agent: { destroy(): void } | null }).agent?.destroy();
     }
+  });
+
+  it('uses the stored snapshot prompt, never the latest revision (#3)', async () => {
+    const agent = createAgent({
+      name: 'Gate B Snapshot Agent',
+      execution: { kind: 'external-harness', harness: 'codex' },
+      systemPrompt: 'You are the prompt-A agent.',
+    });
+    const session = await ensureAgentSession(wsRoot, 'ws_gate_b', agent.id);
+
+    // First dispatch: reply must echo the snapshot prompt (prompt-A).
+    const sm = new SessionManager();
+    const managed = seedSession(sm, session.id, 'gate-b-prompt-1');
+    try {
+      await sm.sendMessage(session.id, 'first turn');
+      await sessionPersistenceQueue.flush(session.id);
+      const texts = loadSession(wsRoot, session.id)!.messages.map((m) => m.content ?? '');
+      expect(texts.some((t) => t.includes('| You are the prompt-A agent.'))).toBe(true);
+    } finally {
+      (managed as unknown as { agent: { destroy(): void } | null }).agent?.destroy();
+    }
+
+    // Agent prompt updated to B (rev 2) — the stored snapshot must still win.
+    const updated = updateAgent(agent.id, { systemPrompt: 'You are the prompt-B agent.' });
+    expect(updated.latestRevision).toBe(2);
+
+    // Same manager, second dispatch: still prompt-A, never prompt-B.
+    const managed2 = seedSession(sm, session.id, 'gate-b-prompt-2');
+    try {
+      await sm.sendMessage(session.id, 'second turn');
+      await sessionPersistenceQueue.flush(session.id);
+      const after = loadSession(wsRoot, session.id)!;
+      const texts = after.messages.map((m) => m.content ?? '');
+      expect(texts.some((t) => t.includes('| You are the prompt-A agent.'))).toBe(true);
+      expect(texts.some((t) => t.includes('prompt-B'))).toBe(false);
+    } finally {
+      (managed2 as unknown as { agent: { destroy(): void } | null }).agent?.destroy();
+    }
+
+    // Fresh SessionManager (restart): resume dispatch must still use prompt-A.
+    const sm3 = new SessionManager();
+    const managed3 = seedSession(sm3, session.id, 'gate-b-prompt-3');
+    try {
+      await sm3.sendMessage(session.id, 'turn after restart');
+      await sessionPersistenceQueue.flush(session.id);
+      const after = loadSession(wsRoot, session.id)!;
+      const texts = after.messages.map((m) => m.content ?? '');
+      expect(texts.some((t) => t.includes('| You are the prompt-A agent.'))).toBe(true);
+      expect(texts.some((t) => t.includes('prompt-B'))).toBe(false);
+    } finally {
+      (managed3 as unknown as { agent: { destroy(): void } | null }).agent?.destroy();
+    }
+  });
+
+  it('rejects a corrupt session (agentId without snapshot) explicitly (#3)', async () => {
+    const agent = createAgent({
+      name: 'Gate B Corrupt Agent',
+      execution: { kind: 'external-harness', harness: 'codex' },
+      systemPrompt: 'You are the corrupt agent.',
+    });
+    const session = await ensureAgentSession(wsRoot, 'ws_gate_b', agent.id);
+
+    // Strip the snapshot from the persisted session header (keep agentId).
+    const sessionPath = join(
+      wsRoot,
+      '.craft-agent',
+      'sessions',
+      session.id,
+      'session.jsonl',
+    );
+    const raw = readFileSync(sessionPath, 'utf-8');
+    const lines = raw.split('\n');
+    const header = JSON.parse(lines[0]!);
+    delete header.agentProfileSnapshot;
+    writeFileSync(sessionPath, JSON.stringify(header) + '\n' + lines.slice(1).join('\n'), 'utf-8');
+
+    const sm = new SessionManager();
+    const managed = seedSession(sm, session.id, 'gate-b-corrupt');
+    expect(managed.agentProfileSnapshot).toBeUndefined();
+    try {
+      await expect(sm.sendMessage(session.id, 'hello')).rejects.toThrow(
+        /corrupt agent session .* manual resolution/
+      );
+    } finally {
+      (managed as unknown as { agent: { destroy(): void } | null }).agent?.destroy();
+    }
+
+    // No new native context was created: no SDK session id, no assistant text.
+    const after = loadSession(wsRoot, session.id)!;
+    expect(after.sdkSessionId).toBeUndefined();
+    const texts = after.messages.map((m) => m.content ?? '');
+    expect(texts.some((t) => t.includes('Hello world'))).toBe(false);
   });
 });
