@@ -142,7 +142,7 @@ export default function AgentsSettingsPage() {
                                         `${t('settings.agents.retireConfirm')} (${agent.name})`
                                       )
                                     ) {
-                                      retire(agent.id)
+                                      retire(agent.id, agent.recordVersion)
                                     }
                                   }}
                                 >
@@ -155,7 +155,7 @@ export default function AgentsSettingsPage() {
                                   className="text-xs"
                                   onClick={(e) => {
                                     e.stopPropagation()
-                                    restore(agent.id)
+                                    restore(agent.id, agent.recordVersion)
                                   }}
                                 >
                                   {t('settings.agents.restore')}

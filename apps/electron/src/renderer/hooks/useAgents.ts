@@ -17,9 +17,12 @@ export interface UseAgentsResult {
   error: string | null
   refresh: () => Promise<void>
   create: (input: CreateAgentInput) => Promise<AgentRecord>
-  update: (agentId: string, input: UpdateAgentInput) => Promise<AgentRecord>
-  retire: (agentId: string) => Promise<void>
-  restore: (agentId: string) => Promise<void>
+  /** @param expectedRecordVersion - CAS guard; stale versions fail with AGENT_VERSION_CONFLICT. */
+  update: (agentId: string, input: UpdateAgentInput, expectedRecordVersion?: number) => Promise<AgentRecord>
+  /** @param expectedRecordVersion - CAS guard; stale versions fail with AGENT_VERSION_CONFLICT. */
+  retire: (agentId: string, expectedRecordVersion?: number) => Promise<void>
+  /** @param expectedRecordVersion - CAS guard; stale versions fail with AGENT_VERSION_CONFLICT. */
+  restore: (agentId: string, expectedRecordVersion?: number) => Promise<void>
   getLatestRevision: (agentId: string) => Promise<AgentProfileRevision>
 }
 
@@ -56,19 +59,19 @@ export function useAgents(options?: { includeRetired?: boolean }): UseAgentsResu
     return agent
   }, [refresh])
 
-  const update = useCallback(async (agentId: string, input: UpdateAgentInput) => {
-    const agent = await window.electronAPI.updateAgent(agentId, input)
+  const update = useCallback(async (agentId: string, input: UpdateAgentInput, expectedRecordVersion?: number) => {
+    const agent = await window.electronAPI.updateAgent(agentId, input, expectedRecordVersion)
     await refresh()
     return agent
   }, [refresh])
 
-  const retire = useCallback(async (agentId: string) => {
-    await window.electronAPI.retireAgent(agentId)
+  const retire = useCallback(async (agentId: string, expectedRecordVersion?: number) => {
+    await window.electronAPI.retireAgent(agentId, expectedRecordVersion)
     await refresh()
   }, [refresh])
 
-  const restore = useCallback(async (agentId: string) => {
-    await window.electronAPI.restoreAgent(agentId)
+  const restore = useCallback(async (agentId: string, expectedRecordVersion?: number) => {
+    await window.electronAPI.restoreAgent(agentId, expectedRecordVersion)
     await refresh()
   }, [refresh])
 

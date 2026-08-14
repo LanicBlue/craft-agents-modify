@@ -677,9 +677,9 @@ export interface ElectronAPI {
   listAgents(includeRetired?: boolean): Promise<AgentRecord[]>
   getAgent(agentId: string): Promise<AgentRecord>
   createAgent(input: CreateAgentInput): Promise<AgentRecord>
-  updateAgent(agentId: string, input: UpdateAgentInput): Promise<AgentRecord>
-  retireAgent(agentId: string): Promise<AgentRecord>
-  restoreAgent(agentId: string): Promise<AgentRecord>
+  updateAgent(agentId: string, input: UpdateAgentInput, expectedRecordVersion?: number): Promise<AgentRecord>
+  retireAgent(agentId: string, expectedRecordVersion?: number): Promise<AgentRecord>
+  restoreAgent(agentId: string, expectedRecordVersion?: number): Promise<AgentRecord>
   getLatestAgentRevision(agentId: string): Promise<AgentProfileRevision>
 
   // Agent Sessions — execution control (workspace-scoped)

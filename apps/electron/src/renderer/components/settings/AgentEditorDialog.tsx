@@ -42,7 +42,7 @@ export interface AgentEditorDialogProps {
   onCancel: () => void
   onSaved: () => void
   create: (input: CreateAgentInput) => Promise<AgentRecord>
-  update: (agentId: string, input: UpdateAgentInput) => Promise<AgentRecord>
+  update: (agentId: string, input: UpdateAgentInput, expectedRecordVersion?: number) => Promise<AgentRecord>
   getLatestRevision: (agentId: string) => Promise<AgentProfileRevision>
   /** Workspace list for runtime-binding diagnostics (Issue #15) */
   listWorkspaces: () => Promise<Array<{ id: string; name: string }>>
@@ -276,7 +276,7 @@ export function AgentEditorDialog({
           const parsed = parseSources(sources)
           updates.enabledSourceSlugs = parsed ?? []
         }
-        await update(agent!.id, updates)
+        await update(agent!.id, updates, agent!.recordVersion)
       }
       onSaved()
     } catch (err) {

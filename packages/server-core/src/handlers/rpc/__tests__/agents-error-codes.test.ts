@@ -27,7 +27,7 @@ if (RUNNER_MODE) {
   const { CodedError } = await import('@craft-agent/shared/protocol')
   const { registerAgentsHandlers } = await import('../agents')
   const { addWorkspace, ensureConfigDir, saveConfig } = await import('@craft-agent/shared/config')
-  const { createAgent, retireAgent } = await import('@craft-agent/shared/agents')
+  const { createAgent, retireAgent, updateAgent } = await import('@craft-agent/shared/agents')
 
   const TEST_TOKEN = 'test-token-with-enough-entropy-to-pass'
   // Seed an empty config (config.json is created by saveConfig; addWorkspace
@@ -111,6 +111,28 @@ if (RUNNER_MODE) {
       result.invalidIdCode = (err as { code?: string }).code ?? null
       result.invalidIdMessage = (err as { message?: string }).message ?? ''
     }
+
+    // CAS conflict over the wire: stale expectedRecordVersion → AGENT_VERSION_CONFLICT.
+    const casAgent = createAgent({
+      id: 'rpc-cas-agent',
+      name: 'RPC CAS Agent',
+      execution: { kind: 'craft-backend', llmConnection: 'anthropic', model: 'claude-opus-4-8' },
+      systemPrompt: 'You are the cas agent.',
+    })
+    updateAgent(casAgent.id, { name: 'CAS v2' }) // recordVersion 1 → 2
+    try {
+      await client.invoke('agents:update', 'rpc-cas-agent', { name: 'stale' }, 1)
+      result.casConflictCode = null
+    } catch (err) {
+      result.casConflictCode = (err as { code?: string }).code ?? null
+    }
+    // The current version still succeeds.
+    try {
+      const ok = await client.invoke('agents:update', 'rpc-cas-agent', { name: 'fresh' }, 2)
+      result.casFreshOk = (ok as { recordVersion?: number }).recordVersion ?? null
+    } catch {
+      result.casFreshOk = 'error'
+    }
   } finally {
     client.destroy()
     await server.close()
@@ -145,6 +167,9 @@ describe('agent error codes over RPC (real handlers, real transport)', () => {
       // Invalid id through the CREATE channel keeps its structured code.
       expect(out.invalidIdCode).toBe('AGENT_ID_INVALID')
       expect(String(out.invalidIdMessage)).toContain('Invalid agent id')
+      // CAS conflict keeps its structured code over the wire.
+      expect(out.casConflictCode).toBe('AGENT_VERSION_CONFLICT')
+      expect(out.casFreshOk).toBe(3)
       // Message stays human-readable — never a JSON blob.
       expect(String(out.notFoundMessage)).toContain('Agent not found')
       expect(String(out.notFoundMessage)).not.toContain('{')
