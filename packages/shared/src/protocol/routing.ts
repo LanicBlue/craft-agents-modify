@@ -424,6 +424,21 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   RPC_CHANNELS.projects.DELETE_ASSET,
   RPC_CHANNELS.projects.CHANGED,
 
+  // agents — agent profile registry (global, accessed from server)
+  RPC_CHANNELS.agents.LIST,
+  RPC_CHANNELS.agents.GET,
+  RPC_CHANNELS.agents.CREATE,
+  RPC_CHANNELS.agents.UPDATE,
+  RPC_CHANNELS.agents.RETIRE,
+  RPC_CHANNELS.agents.RESTORE,
+
+  // agentSessions — execution control (workspace-scoped)
+  RPC_CHANNELS.agentSessions.LIST,
+  RPC_CHANNELS.agentSessions.ENSURE,
+  RPC_CHANNELS.agentSessions.DISPATCH,
+  RPC_CHANNELS.agentSessions.INTERRUPT,
+  RPC_CHANNELS.agentSessions.GET_RUNTIME,
+
   // git — workspace filesystem
   RPC_CHANNELS.git.GET_BRANCH,
 

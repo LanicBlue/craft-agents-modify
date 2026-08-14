@@ -404,6 +404,21 @@ export const RPC_CHANNELS = {
     DELETE_ASSET: 'projects:deleteAsset',
     CHANGED: 'projects:changed',
   },
+  agents: {
+    LIST: 'agents:list',
+    GET: 'agents:get',
+    CREATE: 'agents:create',
+    UPDATE: 'agents:update',
+    RETIRE: 'agents:retire',
+    RESTORE: 'agents:restore',
+  },
+  agentSessions: {
+    LIST: 'agentSessions:list',
+    ENSURE: 'agentSessions:ensure',
+    DISPATCH: 'agentSessions:dispatch',
+    INTERRUPT: 'agentSessions:interrupt',
+    GET_RUNTIME: 'agentSessions:getRuntime',
+  },
   messaging: {
     // WhatsApp subprocess → Gateway (subprocess invokes on server)
     WA_REGISTER: 'messaging:wa:register',
