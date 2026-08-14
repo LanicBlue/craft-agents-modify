@@ -27,8 +27,8 @@
  * on the next ensureAgentSession).
  */
 
-import { existsSync, mkdirSync, readdirSync } from 'fs';
-import { join } from 'path';
+import { copyFileSync, existsSync, mkdirSync, readdirSync } from 'fs';
+import { dirname, join } from 'path';
 // NOTE: circular import with ../sessions/storage.ts is safe — createSession /
 // loadSession are only accessed inside function bodies, never at module
 // initialization time (same pattern as workspaces/storage ↔ migrate-namespace).
@@ -81,6 +81,13 @@ export interface AgentSessionBinding {
   generation: number;
   createdAt: number;
   updatedAt: number;
+  /** Explicit-conflict details (owner design, Wave 1 R3) */
+  conflict?: {
+    reason: string;
+    /** Session ids on disk claiming this agentId (header scan, any generation) */
+    candidateSessionIds: string[];
+    detectedAt: number;
+  };
 }
 
 /**
@@ -101,8 +108,37 @@ export function getBindingPath(workspaceRootPath: string, agentId: string): stri
 }
 
 /**
+ * Strict binding read used by ensureAgentSession. Distinguishes a MISSING
+ * file (normal — step 4 materializes 'unbound') from a CORRUPT one (file
+ * exists but unreadable/invalid shape — must never be treated as absent,
+ * otherwise a replacement session could be materialized on top of a live
+ * one). Diagnostic reads (resolveBinding/listBindings/unbindBySessionId)
+ * keep the loose loadBinding: skipping a corrupt file is harmless there.
+ */
+type BindingLoadOutcome =
+  | { status: 'missing' }
+  | { status: 'corrupt' }
+  | { status: 'ok'; binding: AgentSessionBinding };
+
+function loadBindingStrict(workspaceRootPath: string, agentId: string): BindingLoadOutcome {
+  const path = getBindingPath(workspaceRootPath, agentId);
+  if (!existsSync(path)) {
+    return { status: 'missing' };
+  }
+  try {
+    const binding = readJsonFileSync<AgentSessionBinding>(path);
+    if (!binding || typeof binding !== 'object' || binding.agentId !== agentId) {
+      return { status: 'corrupt' };
+    }
+    return { status: 'ok', binding };
+  } catch {
+    return { status: 'corrupt' };
+  }
+}
+
+/**
  * Load the binding for one agent. Returns null when missing or unreadable
- * (corrupt files are logged and treated as absent).
+ * (corrupt files are logged and treated as absent — diagnostic reads only).
  */
 export function loadBinding(
   workspaceRootPath: string,
@@ -295,7 +331,50 @@ export async function ensureAgentSession(
   }
 
   return withBindingLock(workspaceRootPath, agentId, async () => {
-    const binding = loadBinding(workspaceRootPath, agentId);
+    const loaded = loadBindingStrict(workspaceRootPath, agentId);
+
+    // Corrupt binding file: NEVER treat as absent — a replacement session
+    // could otherwise be materialized on top of live canonical state. Backup
+    // the file for forensics, record an explicit conflict with the sessions
+    // claiming this agentId, and fail loudly (owner design, Wave 1 R3).
+    if (loaded.status === 'corrupt') {
+      const corruptPath = getBindingPath(workspaceRootPath, agentId);
+      const backupPath = join(
+        dirname(corruptPath),
+        `${agentId}.json.corrupt-${Date.now()}`
+      );
+      try {
+        // Preserve the corrupt bytes verbatim; never overwrite an existing backup.
+        if (!existsSync(backupPath)) {
+          copyFileSync(corruptPath, backupPath);
+        }
+      } catch (err) {
+        debug(
+          `[bindings] Could not back up corrupt binding for ${agentId}: ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
+
+      const now = Date.now();
+      saveBinding(workspaceRootPath, {
+        schemaVersion: BINDING_SCHEMA_VERSION,
+        workspaceId,
+        agentId,
+        state: 'conflict',
+        generation: 0,
+        createdAt: now,
+        updatedAt: now,
+        conflict: {
+          reason: 'corrupt binding file',
+          candidateSessionIds: findSessionsForAgent(workspaceRootPath, agentId),
+          detectedAt: now,
+        },
+      });
+      throw new AgentSessionBindingError(
+        'AGENT_BINDING_CONFLICT',
+        `Binding file for agent ${agentId} is corrupt; manual resolution required`
+      );
+    }
+    const binding = loaded.status === 'ok' ? loaded.binding : null;
 
     // Step 2: explicit conflict — never auto-resolve.
     if (binding?.state === 'conflict') {
@@ -417,6 +496,24 @@ export async function ensureAgentSession(
 
     return session;
   });
+}
+
+/**
+ * Scan session headers on disk for every session claiming this agentId
+ * (any generation/state) — evidence for the conflict record.
+ */
+function findSessionsForAgent(workspaceRootPath: string, agentId: string): string[] {
+  const sessionsDir = getWorkspaceSessionsPath(workspaceRootPath);
+  if (!existsSync(sessionsDir)) return [];
+  const ids: string[] = [];
+  for (const entry of readdirSync(sessionsDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const header = readSessionHeader(join(sessionsDir, entry.name, 'session.jsonl'));
+    if (header?.agentId === agentId) {
+      ids.push(entry.name);
+    }
+  }
+  return ids;
 }
 
 /**

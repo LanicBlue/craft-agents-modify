@@ -35,7 +35,7 @@ import {
   AgentSessionBindingError,
   type AgentSessionError,
 } from '../bindings.ts';
-import { deleteSession } from '../../sessions/storage.ts';
+import { deleteSession, loadSession } from '../../sessions/storage.ts';
 
 let configDir: string;
 let ws: string;
@@ -252,6 +252,45 @@ describe('bindings storage resilience', () => {
 
     expect(() => loadBinding(ws, agent.id)).not.toThrow();
     expect(loadBinding(ws, agent.id)).toBeNull();
+  });
+});
+
+describe('corrupt binding → explicit conflict (Wave 1 R3)', () => {
+  it('never materializes a replacement session; backs up the corrupt file; conflict records candidates', async () => {
+    const agent = createTestAgent();
+    const first = await ensureAgentSession(ws, 'ws-1', agent.id);
+    expect(getBinding(ws, agent.id)?.state).toBe('bound');
+
+    // Owner repro: corrupt the binding file after a live gen-1 session exists.
+    const corruptContent = '{corrupt json!!';
+    writeFileSync(getBindingPath(ws, agent.id), corruptContent, 'utf-8');
+
+    const sessionsBefore = readdirSync(join(ws, '.craft-agent', 'sessions')).length;
+    await expectError('AGENT_BINDING_CONFLICT', () => ensureAgentSession(ws, 'ws-1', agent.id));
+
+    // No new session was materialized (the old gen-1 session stays canonical).
+    const sessionsAfter = readdirSync(join(ws, '.craft-agent', 'sessions')).length;
+    expect(sessionsAfter).toBe(sessionsBefore);
+    expect(loadSession(ws, first.id)).not.toBeNull();
+
+    // The corrupt bytes are preserved verbatim in the backup file.
+    const backups = readdirSync(join(ws, '.craft-agent', 'agent-sessions')).filter((f) =>
+      f.startsWith(`${agent.id}.json.corrupt-`)
+    );
+    expect(backups.length).toBe(1);
+    expect(readFileSync(join(ws, '.craft-agent', 'agent-sessions', backups[0]!), 'utf-8')).toBe(
+      corruptContent
+    );
+
+    // The binding is now an explicit conflict with the live session as candidate.
+    const binding = getBinding(ws, agent.id);
+    expect(binding?.state).toBe('conflict');
+    expect(binding?.conflict?.reason).toBe('corrupt binding file');
+    expect(binding?.conflict?.candidateSessionIds).toContain(first.id);
+    expect(typeof binding?.conflict?.detectedAt).toBe('number');
+
+    // Subsequent calls keep failing with the conflict — no retry loop.
+    await expectError('AGENT_BINDING_CONFLICT', () => ensureAgentSession(ws, 'ws-1', agent.id));
   });
 });
 
