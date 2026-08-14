@@ -152,6 +152,7 @@ const workspace: Workspace = {
 
 function makeAgent(name: string) {
   return createAgent({
+    id: 'craft-a-' + name.toLowerCase().replace(/[^a-z0-9-]/g, '-'),
     name,
     execution: { kind: 'craft-backend', llmConnection: 'anthropic', model: 'claude-opus-4-8' },
     systemPrompt: 'You are the craft-backend agent.',
@@ -313,6 +314,7 @@ describe('Gate A: craft-backend real dispatch', () => {
 
   it('agentSystemPrompt flows from the stored snapshot across restarts (#3)', async () => {
     const agent = createAgent({
+      id: 'craft-a-role',
       name: 'Craft A Role Agent',
       execution: { kind: 'craft-backend', llmConnection: 'anthropic', model: 'claude-opus-4-8' },
       systemPrompt: 'You are the role-A agent.',
@@ -333,7 +335,7 @@ describe('Gate A: craft-backend real dispatch', () => {
 
     // Agent prompt updated to B (rev 2) — stored snapshot must still win.
     const updated = updateAgent(agent.id, { systemPrompt: 'You are the role-B agent.' });
-    expect(updated.latestRevision).toBe(2);
+    expect(updated.latestProfileRevision).toBe(2);
 
     // Fresh SessionManager (restart + adopt): new backend creation args are
     // still A (the snapshot), never the latest revision B.

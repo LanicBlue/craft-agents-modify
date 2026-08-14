@@ -43,7 +43,7 @@ let ws: string;
 const exec = { kind: 'craft-backend' as const, llmConnection: 'anthropic', model: 'claude-opus-4-8' };
 
 function createTestAgent(name = 'Binding Agent') {
-  return createAgent({ name, execution: exec, systemPrompt: 'You are bound.' });
+  return createAgent({ id: 'bind-' + name.toLowerCase().replace(/[^a-z0-9-]/g, '-'), name, execution: exec, systemPrompt: 'You are bound.' });
 }
 
 async function expectError(code: AgentSessionError, fn: () => Promise<unknown>) {
@@ -162,7 +162,7 @@ describe('ensureAgentSession', () => {
   });
 
   it('throws AGENT_NOT_FOUND for unknown agents', async () => {
-    await expectError('AGENT_NOT_FOUND', () => ensureAgentSession(ws, 'ws-1', 'agent_deadbeef'));
+    await expectError('AGENT_NOT_FOUND', () => ensureAgentSession(ws, 'ws-1', 'no-such-agent'));
   });
 
   it('throws AGENT_BINDING_CONFLICT for conflict bindings without auto-resolving', async () => {
@@ -274,6 +274,7 @@ describe('snapshot inheritance at materialization (Wave 2 R1a)', () => {
       enabledSourceSlugs: ['github'],
     });
     const agent = createAgent({
+      id: 'inherit-agent',
       name: 'Inherit Agent',
       execution: { kind: 'craft-backend' },
       systemPrompt: 'Inherit me.',
@@ -295,6 +296,7 @@ describe('snapshot inheritance at materialization (Wave 2 R1a)', () => {
   it('explicit [] sources are never overridden by workspace defaults', async () => {
     seedWorkspaceDefaults({ enabledSourceSlugs: ['github'] });
     const agent = createAgent({
+      id: 'empty-sources-agent',
       name: 'Empty Sources Agent',
       execution: { kind: 'craft-backend', llmConnection: 'anthropic', model: 'claude-opus-4-8' },
       systemPrompt: 'No sources.',
@@ -309,6 +311,7 @@ describe('snapshot inheritance at materialization (Wave 2 R1a)', () => {
   it('inheritance happens exactly once: later defaults changes never mutate the live session', async () => {
     seedWorkspaceDefaults({ permissionMode: 'allow-all' });
     const agent = createAgent({
+      id: 'once-agent',
       name: 'Once Agent',
       execution: { kind: 'craft-backend' },
       systemPrompt: 'Once.',

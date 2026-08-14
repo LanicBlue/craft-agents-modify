@@ -13,23 +13,29 @@ import type { ThinkingLevel } from '../agent/thinking-levels.ts';
 import type { PermissionMode } from '../agent/mode-types.ts';
 
 /**
- * Permanent logical identity of an agent.
- * `id` is generated at creation (agent_{8-char-uuid}) and is immutable for the
- * lifetime of the record — updates never accept an agentId parameter.
+ * Permanent logical identity of an agent (per-agent agent.json, Issue #2).
+ * `id` is caller-supplied, validated at creation (^[a-z][a-z0-9-]{0,63}$),
+ * never silently normalized, and immutable for the lifetime of the record.
  */
 export interface AgentRecord {
-  /** Permanent identity. Format: agent_{8-char-uuid}. Immutable after creation. */
+  /** Storage schema version (1). */
+  schemaVersion: 1;
+  /** Permanent identity. Validated format; immutable after creation. */
   id: string;
   /** Display name (mutable). */
   name: string;
   /** Lifecycle state. */
   status: 'active' | 'retired';
+  /** Monotonic record version — CAS guard for concurrent updates. */
+  recordVersion: number;
   /** Current latest revision number (starts at 1, increments on config changes). */
-  latestRevision: number;
+  latestProfileRevision: number;
   description?: string;
   capabilities?: string[];
   createdAt: number;
   updatedAt: number;
+  /** Set when the agent is retired (kept forever; id never reused). */
+  retiredAt?: number;
 }
 
 /**
@@ -90,7 +96,14 @@ export interface AgentProfileSnapshot {
  * Input for creating a new agent. The agentId is generated internally and can
  * never be supplied by the caller.
  */
+/**
+ * Input for creating a new agent.
+ * The stable id is REQUIRED and validated at creation
+ * (^[a-z][a-z0-9-]{0,63}$) — never silently normalized.
+ */
 export interface CreateAgentInput {
+  /** Stable, validated id. Immutable after creation; retired ids are never reused. */
+  id: string;
   name: string;
   description?: string;
   capabilities?: string[];
@@ -119,9 +132,23 @@ export interface UpdateAgentInput {
 }
 
 /**
- * On-disk registry structure.
+ * On-disk registry structure — REMOVED with Issue #2: no registry.json;
+ * the agents directory is the source of truth (list = readdir aggregation,
+ * any future index is a rebuildable cache).
  */
-export interface AgentRegistry {
-  version: number;
-  agents: AgentRecord[];
+
+export type AgentRegistryErrorCode =
+  | 'AGENT_NOT_FOUND'
+  | 'AGENT_ALREADY_EXISTS'
+  | 'AGENT_ID_INVALID'
+  | 'AGENT_VERSION_CONFLICT'
+  | 'AGENT_PROFILE_INVALID'
+  | 'AGENT_PROFILE_REVISION_NOT_FOUND'
+  | 'AGENT_STORAGE_CORRUPT';
+
+export class AgentRegistryError extends Error {
+  constructor(public code: AgentRegistryErrorCode, message: string) {
+    super(message);
+    this.name = 'AgentRegistryError';
+  }
 }

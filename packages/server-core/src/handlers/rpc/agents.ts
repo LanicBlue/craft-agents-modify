@@ -24,6 +24,7 @@ import {
   ensureAgentSession,
   resolveBinding,
   AgentSessionBindingError,
+  AgentRegistryError,
   type AgentBindingDiagnostics,
   type CreateAgentInput,
   type UpdateAgentInput,
@@ -34,12 +35,12 @@ import { CodedError } from '@craft-agent/shared/protocol'
 import type { HandlerDeps } from '../handler-deps'
 
 /**
- * Convert AgentSessionBindingError into a structured RPC error: the 5 binding
- * error codes reach RPC callers as `err.code` (transport preserves ErrorCode
- * through the wire), message stays human-readable.
+ * Convert AgentSessionBindingError / AgentRegistryError into structured RPC
+ * errors: error codes reach RPC callers as `err.code` (transport preserves
+ * ErrorCode through the wire), message stays human-readable.
  */
 function bindingErrorToRpc(e: unknown): Error {
-  if (e instanceof AgentSessionBindingError) {
+  if (e instanceof AgentSessionBindingError || e instanceof AgentRegistryError) {
     return new CodedError(e.code, e.message)
   }
   return e instanceof Error ? e : new Error(String(e))
@@ -55,31 +56,55 @@ export function registerAgentsHandlers(server: RpcServer, deps: HandlerDeps): vo
   })
 
   server.handle(RPC_CHANNELS.agents.GET, async (_ctx, agentId: string) => {
-    const agent = getAgent(agentId)
-    if (!agent) throw new Error(`Agent not found: ${agentId}`)
-    return agent
+    try {
+      const agent = getAgent(agentId)
+      if (!agent) throw new AgentRegistryError('AGENT_NOT_FOUND', `Agent not found: ${agentId}`)
+      return agent
+    } catch (e) {
+      throw bindingErrorToRpc(e)
+    }
   })
 
   server.handle(RPC_CHANNELS.agents.CREATE, async (_ctx, input: CreateAgentInput) => {
-    return createAgent(input)
+    try {
+      return createAgent(input)
+    } catch (e) {
+      throw bindingErrorToRpc(e)
+    }
   })
 
   server.handle(RPC_CHANNELS.agents.UPDATE, async (_ctx, agentId: string, input: UpdateAgentInput) => {
-    return updateAgent(agentId, input)
+    try {
+      return updateAgent(agentId, input)
+    } catch (e) {
+      throw bindingErrorToRpc(e)
+    }
   })
 
   server.handle(RPC_CHANNELS.agents.RETIRE, async (_ctx, agentId: string) => {
-    return retireAgent(agentId)
+    try {
+      return retireAgent(agentId)
+    } catch (e) {
+      throw bindingErrorToRpc(e)
+    }
   })
 
   server.handle(RPC_CHANNELS.agents.RESTORE, async (_ctx, agentId: string) => {
-    return restoreAgent(agentId)
+    try {
+      return restoreAgent(agentId)
+    } catch (e) {
+      throw bindingErrorToRpc(e)
+    }
   })
 
   server.handle(RPC_CHANNELS.agents.GET_LATEST_REVISION, async (_ctx, agentId: string) => {
-    const revision = loadLatestRevision(agentId)
-    if (!revision) throw new Error(`No revision found for agent: ${agentId}`)
-    return revision
+    try {
+      const revision = loadLatestRevision(agentId)
+      if (!revision) throw new AgentRegistryError('AGENT_NOT_FOUND', `No revision found for agent: ${agentId}`)
+      return revision
+    } catch (e) {
+      throw bindingErrorToRpc(e)
+    }
   })
 
   // ------------------------------------------------------------------

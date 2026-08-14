@@ -158,7 +158,7 @@ export function createProjectServiceMcpServer(
         name: agent.name,
         description: agent.description,
         status: agent.status,
-        latestRevision: agent.latestRevision,
+        latestProfileRevision: agent.latestProfileRevision,
         executionKind: revision?.execution.kind ?? null,
         systemPrompt: revision ? truncate(revision.systemPrompt, 500) : null,
       });

@@ -71,6 +71,7 @@ const workspace: Workspace = {
 
 function makeAgent(name: string) {
   return createAgent({
+    id: 'adopt-' + name.toLowerCase().replace(/[^a-z0-9-]/g, '-'),
     name,
     execution: { kind: 'external-harness', harness: 'codex' },
     systemPrompt: 'You are the adopt agent.',

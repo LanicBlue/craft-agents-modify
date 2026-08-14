@@ -98,6 +98,13 @@ export type ErrorCode =
   | 'AGENT_BINDING_CONFLICT'
   | 'AGENT_SESSION_UNAVAILABLE'
   | 'AGENT_EXECUTION_UNAVAILABLE'
+  // Agent registry storage (Issue #2) — AgentRegistryError codes.
+  | 'AGENT_ALREADY_EXISTS'
+  | 'AGENT_ID_INVALID'
+  | 'AGENT_VERSION_CONFLICT'
+  | 'AGENT_PROFILE_INVALID'
+  | 'AGENT_PROFILE_REVISION_NOT_FOUND'
+  | 'AGENT_STORAGE_CORRUPT'
 
 const KNOWN_ERROR_CODES: ReadonlySet<string> = new Set<ErrorCode>([
   'HANDLER_ERROR',
@@ -123,6 +130,12 @@ const KNOWN_ERROR_CODES: ReadonlySet<string> = new Set<ErrorCode>([
   'AGENT_BINDING_CONFLICT',
   'AGENT_SESSION_UNAVAILABLE',
   'AGENT_EXECUTION_UNAVAILABLE',
+  'AGENT_ALREADY_EXISTS',
+  'AGENT_ID_INVALID',
+  'AGENT_VERSION_CONFLICT',
+  'AGENT_PROFILE_INVALID',
+  'AGENT_PROFILE_REVISION_NOT_FOUND',
+  'AGENT_STORAGE_CORRUPT',
 ])
 
 export function isErrorCode(value: unknown): value is ErrorCode {

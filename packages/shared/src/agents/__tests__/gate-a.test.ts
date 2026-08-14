@@ -72,6 +72,7 @@ afterEach(() => {
 
 function makeAgent() {
   return createAgent({
+    id: 'gate-a-agent',
     name: 'Gate A Agent',
     execution: exec,
     systemPrompt: 'You are the gate agent.',
@@ -197,7 +198,7 @@ describe('Gate A: error propagation in dispatch flow', () => {
   });
 
   it('throws AGENT_NOT_FOUND for unknown agents', async () => {
-    await expectError('AGENT_NOT_FOUND', () => ensureAgentSession(ws, 'ws-1', 'agent_deadbeef'));
+    await expectError('AGENT_NOT_FOUND', () => ensureAgentSession(ws, 'ws-1', 'no-such-agent'));
   });
 });
 

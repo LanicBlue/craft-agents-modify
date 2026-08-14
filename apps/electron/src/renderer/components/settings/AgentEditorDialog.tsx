@@ -241,6 +241,9 @@ export function AgentEditorDialog({
     try {
       if (!isEdit) {
         const input: CreateAgentInput = {
+          // Stable id: R2a makes ids caller-supplied; the editor id field
+          // ships with R2b — until then a generated valid id is used.
+          id: `a-${Math.random().toString(36).slice(2, 10)}`,
           name: name.trim(),
           systemPrompt: systemPrompt.trim(),
           execution: buildExecution(),
@@ -271,7 +274,7 @@ export function AgentEditorDialog({
     }
   }
 
-  const nextRevision = isEdit ? (agent!.latestRevision + 1).toString() : null
+  const nextRevision = isEdit ? (agent!.latestProfileRevision + 1).toString() : null
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onCancel()}>

@@ -87,6 +87,7 @@ beforeEach(async () => {
 
   // An agent
   const agent = createAgent({
+    id: 'psmcp-agent',
     name: 'PSMCP Agent',
     description: 'Project service test agent',
     execution: { kind: 'craft-backend', llmConnection: 'anthropic', model: 'claude-opus-4-8' },
@@ -148,10 +149,10 @@ describe('get_current_assignment', () => {
   });
 
   it('returns found:false for an unknown agent (no throw)', async () => {
-    const server = makeServer('agent_deadbeef');
+    const server = makeServer('no-such-agent');
     const assign = await runTool(server, 'get_current_assignment', {});
     expect(assign.found).toBe(false);
-    expect(assign.agentId).toBe('agent_deadbeef');
+    expect(assign.agentId).toBe('no-such-agent');
   });
 });
 

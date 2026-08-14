@@ -118,7 +118,7 @@ export default function AgentsSettingsPage() {
                                   : t('settings.agents.retired')}
                               </Badge>
                               <span className="text-xs text-muted-foreground">
-                                {t('settings.agents.revision')} {agent.latestRevision}
+                                {t('settings.agents.revision')} {agent.latestProfileRevision}
                               </span>
                             </>
                           }

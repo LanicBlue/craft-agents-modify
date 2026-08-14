@@ -75,7 +75,7 @@ if (RUNNER_MODE) {
   const result: Record<string, unknown> = {}
   try {
     try {
-      await client.invoke('agentSessions:ensure', 'Agents RPC Code WS', 'agent_deadbeef')
+      await client.invoke('agentSessions:ensure', 'Agents RPC Code WS', 'no-such-agent')
       result.notFoundCode = null
     } catch (err) {
       const e = err as { code?: string; message?: string }
@@ -85,6 +85,7 @@ if (RUNNER_MODE) {
     }
 
     const agent = createAgent({
+      id: 'rpc-code-retire-agent',
       name: 'RPC Code Retire Agent',
       execution: { kind: 'craft-backend', llmConnection: 'anthropic', model: 'claude-opus-4-8' },
       systemPrompt: 'You are the retire agent.',

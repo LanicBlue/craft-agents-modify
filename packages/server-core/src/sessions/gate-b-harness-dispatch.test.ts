@@ -127,6 +127,7 @@ describe('Gate B: real dispatch through external-harness backend', () => {
   it('materializes a session and completes a real dispatch round-trip', async () => {
     // 1. Real agent registry + real canonical binding + real session on disk.
     const agent = createAgent({
+      id: 'gate-b-codex',
       name: 'Gate B Codex Agent',
       execution: { kind: 'external-harness', harness: 'codex' },
       systemPrompt: 'You are the gate B agent.',
@@ -168,6 +169,7 @@ describe('Gate B: real dispatch through external-harness backend', () => {
 
   it('restart recovery: fresh SessionManager resumes the native harness session', async () => {
     const agent = createAgent({
+      id: 'gate-b-resume',
       name: 'Gate B Resume Agent',
       execution: { kind: 'external-harness', harness: 'codex' },
       systemPrompt: 'You are the resume agent.',
@@ -206,6 +208,7 @@ describe('Gate B: real dispatch through external-harness backend', () => {
 
   it('uses the stored snapshot prompt, never the latest revision (#3)', async () => {
     const agent = createAgent({
+      id: 'gate-b-snapshot',
       name: 'Gate B Snapshot Agent',
       execution: { kind: 'external-harness', harness: 'codex' },
       systemPrompt: 'You are the prompt-A agent.',
@@ -226,7 +229,7 @@ describe('Gate B: real dispatch through external-harness backend', () => {
 
     // Agent prompt updated to B (rev 2) — the stored snapshot must still win.
     const updated = updateAgent(agent.id, { systemPrompt: 'You are the prompt-B agent.' });
-    expect(updated.latestRevision).toBe(2);
+    expect(updated.latestProfileRevision).toBe(2);
 
     // Same manager, second dispatch: still prompt-A, never prompt-B.
     const managed2 = seedSession(sm, session.id, 'gate-b-prompt-2');
@@ -258,6 +261,7 @@ describe('Gate B: real dispatch through external-harness backend', () => {
 
   it('rejects a corrupt session (agentId without snapshot) explicitly (#3)', async () => {
     const agent = createAgent({
+      id: 'gate-b-corrupt',
       name: 'Gate B Corrupt Agent',
       execution: { kind: 'external-harness', harness: 'codex' },
       systemPrompt: 'You are the corrupt agent.',
