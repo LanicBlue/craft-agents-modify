@@ -106,6 +106,7 @@ import { ensureDefaultPermissions } from '@craft-agent/shared/agent/permissions-
 import { ensureToolIcons, ensurePresetThemes } from '@craft-agent/shared/config'
 import { setBundledAssetsRoot } from '@craft-agent/shared/utils'
 import { initializeBackendHostRuntime } from '@craft-agent/shared/agent/backend'
+import { registerBuiltinHarnessDrivers } from '@craft-agent/shared/agent/backend/harness/drivers'
 import { setPowerShellValidatorRoot } from '@craft-agent/shared/agent'
 import { handleDeepLink } from './deep-link'
 import { BrowserPaneManager } from './browser-pane-manager'
@@ -400,6 +401,9 @@ app.whenReady().then(async () => {
       isPackaged: app.isPackaged,
     },
   })
+
+  // Register built-in harness drivers (Codex, etc.) — must run before any agent sessions.
+  registerBuiltinHarnessDrivers()
 
   // Register PowerShell validator root so it can find the bundled parser script
   // (Windows only: validates PowerShell commands in Explore mode using AST analysis)
