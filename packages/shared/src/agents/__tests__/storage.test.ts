@@ -287,6 +287,24 @@ describe('revision loading', () => {
     expectRegistryError(() => storage.loadRevision(record.id, 1), 'AGENT_PROFILE_INVALID');
   });
 
+  it('non-object revision contents (null/string/array) are rejected as invalid', () => {
+    const record = storage.createAgent(makeInput());
+    const valid = JSON.stringify({
+      agentId: record.id,
+      revision: 1,
+      execution: backendExec,
+      systemPrompt: 'You are a test agent.',
+      createdAt: 1,
+    });
+    for (const bad of ['null', JSON.stringify('a string'), JSON.stringify([1, 2, 3])]) {
+      writeFileSync(revPath(record.id, 1), bad, 'utf-8');
+      expectRegistryError(() => storage.loadRevision(record.id, 1), 'AGENT_PROFILE_INVALID');
+      expectRegistryError(() => storage.loadLatestRevision(record.id), 'AGENT_STORAGE_CORRUPT');
+      // Restore a valid revision for the next iteration.
+      writeFileSync(revPath(record.id, 1), valid, 'utf-8');
+    }
+  });
+
   it('listRevisions returns revisions in ascending order', () => {
     const record = storage.createAgent(makeInput());
     storage.updateAgent(record.id, { execution: harnessExec });
@@ -304,10 +322,21 @@ describe('revision loading', () => {
     writeFileSync(revPath(record.id, 5), JSON.stringify({ agentId: record.id, revision: 5, execution: backendExec, systemPrompt: 'orphan', createdAt: Date.now() }), 'utf-8');
 
     expect(storage.loadLatestRevision(record.id)?.revision).toBe(1);
-    // Orphan is still listed (history), but never treated as latest.
-    expect(storage.listRevisions(record.id).map((r) => r.revision)).toEqual([1, 5]);
+    // The orphan never surfaces on the history read path.
+    expect(storage.listRevisions(record.id).map((r) => r.revision)).toEqual([1]);
+    // …but the physical file stays on disk (uncommitted crash leftover).
+    expect(existsSync(revPath(record.id, 5))).toBe(true);
     storage.updateAgent(record.id, { execution: harnessExec });
     expect(storage.loadLatestRevision(record.id)?.revision).toBe(2);
+    // Orphan 5 stays hidden while the pointer is below it…
+    storage.updateAgent(record.id, { systemPrompt: 'three' });
+    expect(storage.listRevisions(record.id).map((r) => r.revision)).toEqual([1, 2, 3]);
+    // …and joins the visible history only once the pointer passes it.
+    storage.updateAgent(record.id, { systemPrompt: 'four' });
+    storage.updateAgent(record.id, { systemPrompt: 'five' });
+    storage.updateAgent(record.id, { systemPrompt: 'six' });
+    expect(storage.loadLatestRevision(record.id)?.revision).toBe(6);
+    expect(storage.listRevisions(record.id).map((r) => r.revision)).toEqual([1, 2, 3, 4, 5, 6]);
   });
 
   it('rejects malicious agentIds used in file paths', () => {

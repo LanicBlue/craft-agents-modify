@@ -176,13 +176,16 @@ function saveRevision(revision: AgentProfileRevision): void {
 
 /** Shape-validate a revision; throws AGENT_PROFILE_INVALID when malformed. */
 function assertValidRevision(revision: unknown): asserts revision is AgentProfileRevision {
-  if (typeof revision !== 'object' || revision === null) return;
+  if (typeof revision !== 'object' || revision === null || Array.isArray(revision)) {
+    throw new AgentRegistryError('AGENT_PROFILE_INVALID', 'Invalid agent profile revision shape');
+  }
   const r = revision as Record<string, unknown>;
   const valid =
     typeof r.agentId === 'string' &&
     typeof r.revision === 'number' &&
     typeof r.execution === 'object' &&
     r.execution !== null &&
+    !Array.isArray(r.execution) &&
     typeof r.systemPrompt === 'string' &&
     typeof r.createdAt === 'number';
   if (!valid) {
@@ -240,20 +243,24 @@ export function loadLatestRevision(agentId: string): AgentProfileRevision | null
 
 /**
  * List all revisions for an agent, sorted ascending by revision number.
- * Orphan files (not referenced by the pointer) are ignored; unreadable files
- * are skipped with a debug log (except the pointer target, which loadLatest
+ * Only revisions <= the agent.json pointer (latestProfileRevision) are
+ * included — newer unreferenced revision files are ORPHANS (crashed commit
+ * leftovers) and never surface on any read path. Unreadable files are
+ * skipped with a debug log (except the pointer target, which loadLatest
  * surfaces as corruption).
  */
 export function listRevisions(agentId: string): AgentProfileRevision[] {
   validateAgentId(agentId);
-  const revisionsDir = getRevisionsDir(agentId);
-  if (!existsSync(revisionsDir)) return [];
+  // The pointer is authoritative: without a record there is nothing to list.
+  const record = loadRecord(agentId);
+  if (!record) return [];
+  if (!existsSync(getRevisionsDir(agentId))) return [];
 
   let entries: string[];
   try {
-    entries = readdirSync(revisionsDir);
+    entries = readdirSync(getRevisionsDir(agentId));
   } catch (err) {
-    debug(`[agents] failed to list revisions at ${revisionsDir}: ${err instanceof Error ? err.message : String(err)}`);
+    debug(`[agents] failed to list revisions at ${getRevisionsDir(agentId)}: ${err instanceof Error ? err.message : String(err)}`);
     return [];
   }
 
@@ -262,6 +269,7 @@ export function listRevisions(agentId: string): AgentProfileRevision[] {
     const match = /^(\d{6})\.json$/.exec(entry);
     if (!match) continue;
     const revisionNumber = Number(match[1]);
+    if (revisionNumber > record.latestProfileRevision) continue; // orphan — ignore
     try {
       revisions.push(loadRevision(agentId, revisionNumber));
     } catch (err) {
