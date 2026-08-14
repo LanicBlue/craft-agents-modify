@@ -176,7 +176,7 @@ export interface TransportConnectionState {
 import type { WorkspaceInfo, Workspace, SessionMetadata, StoredAttachment as StoredAttachmentType } from '@craft-agent/core/types';
 
 // Agent profile types for ElectronAPI (from @craft-agent/shared/agents)
-import type { AgentRecord, AgentProfileRevision, CreateAgentInput, UpdateAgentInput, AgentSessionBinding } from '@craft-agent/shared/agents';
+import type { AgentRecord, AgentProfileRevision, CreateAgentInput, UpdateAgentInput, AgentBindingDiagnostics } from '@craft-agent/shared/agents';
 
 // Import protocol types used by ElectronAPI (they come through the `export *` above,
 // but we need them in scope for the interface definition)
@@ -683,7 +683,7 @@ export interface ElectronAPI {
   getLatestAgentRevision(agentId: string): Promise<AgentProfileRevision>
 
   // Agent Sessions — execution control (workspace-scoped)
-  listAgentBindings(workspaceId: string): Promise<AgentSessionBinding[]>
+  listAgentBindings(workspaceId: string): Promise<AgentBindingDiagnostics[]>
   ensureAgentSession(workspaceId: string, agentId: string): Promise<{ sessionId: string; agentId: string; workspaceId: string }>
   dispatchAgentSession(workspaceId: string, agentId: string, message: string): Promise<{ sessionId: string; accepted: boolean }>
   interruptAgentSession(workspaceId: string, agentId: string): Promise<void>

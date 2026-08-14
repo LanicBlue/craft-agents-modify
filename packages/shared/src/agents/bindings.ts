@@ -83,6 +83,15 @@ export interface AgentSessionBinding {
   updatedAt: number;
 }
 
+/**
+ * Binding enriched with the canonical session's profile revision
+ * (diagnostics-only, Issue #15 — never used for identity or dispatch).
+ */
+export interface AgentBindingDiagnostics extends AgentSessionBinding {
+  /** Profile revision of the bound canonical session; undefined when unbound or session unreadable. */
+  sessionProfileRevision?: number;
+}
+
 // ============================================================
 // Storage (per-agent files)
 // ============================================================

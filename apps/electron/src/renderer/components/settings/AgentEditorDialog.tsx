@@ -31,7 +31,7 @@ import {
   SettingsTextarea,
 } from '@/components/settings'
 import { useRegisterModal } from '@/context/ModalContext'
-import type { AgentRecord, AgentProfileRevision, CreateAgentInput, UpdateAgentInput, AgentExecutionConfig } from '@craft-agent/shared/agents'
+import type { AgentRecord, AgentProfileRevision, CreateAgentInput, UpdateAgentInput, AgentExecutionConfig, AgentBindingDiagnostics } from '@craft-agent/shared/agents'
 import type { ThinkingLevel } from '@craft-agent/shared/agent/thinking-levels'
 import type { PermissionMode } from '@craft-agent/shared/agent/modes'
 
@@ -44,6 +44,10 @@ export interface AgentEditorDialogProps {
   create: (input: CreateAgentInput) => Promise<AgentRecord>
   update: (agentId: string, input: UpdateAgentInput) => Promise<AgentRecord>
   getLatestRevision: (agentId: string) => Promise<AgentProfileRevision>
+  /** Workspace list for runtime-binding diagnostics (Issue #15) */
+  listWorkspaces: () => Promise<Array<{ id: string; name: string }>>
+  /** Per-workspace binding diagnostics for the runtime-binding section */
+  listAgentBindings: (workspaceId: string) => Promise<AgentBindingDiagnostics[]>
 }
 
 const THINKING_OPTIONS: ThinkingLevel[] = ['off', 'low', 'medium', 'high', 'xhigh', 'max']
@@ -76,6 +80,8 @@ export function AgentEditorDialog({
   create,
   update,
   getLatestRevision,
+  listWorkspaces,
+  listAgentBindings,
 }: AgentEditorDialogProps) {
   const { t } = useTranslation()
   const isEdit = agent !== null
@@ -99,6 +105,48 @@ export function AgentEditorDialog({
   const [isLoadingRevision, setIsLoadingRevision] = React.useState(false)
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [isSaving, setIsSaving] = React.useState(false)
+
+  // --- Runtime binding diagnostics (edit mode only, read-only) ---
+  interface BindingRow {
+    workspaceName: string
+    state?: string
+    generation?: number
+    sessionProfileRevision?: number
+  }
+  const [bindingRows, setBindingRows] = React.useState<BindingRow[] | null>(null)
+
+  React.useEffect(() => {
+    if (!open || !agent) return
+    let cancelled = false
+    setBindingRows(null)
+    listWorkspaces()
+      .then(async (workspaces) => {
+        const rows: BindingRow[] = []
+        for (const w of workspaces) {
+          try {
+            const bindings = await listAgentBindings(w.id)
+            const mine = bindings.find((b) => b.agentId === agent.id)
+            if (mine) {
+              rows.push({
+                workspaceName: w.name,
+                state: mine.state,
+                generation: mine.generation,
+                sessionProfileRevision: mine.sessionProfileRevision,
+              })
+            }
+          } catch {
+            // fail-soft: a single workspace query failure never breaks the dialog
+          }
+        }
+        if (!cancelled) setBindingRows(rows)
+      })
+      .catch(() => {
+        if (!cancelled) setBindingRows([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [open, agent, listWorkspaces, listAgentBindings])
 
   useRegisterModal(open, onCancel)
 
@@ -271,6 +319,54 @@ export function AgentEditorDialog({
                 placeholder={t('settings.agents.descriptionLabel')}
               />
             </div>
+
+            {/* Runtime bindings (diagnostics-only, read-only — Issue #15) */}
+            {isEdit && bindingRows !== null && (
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                  {t('settings.agents.runtimeBindings')}
+                </p>
+                {bindingRows.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    {t('settings.agents.noBindings')}
+                  </p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {bindingRows.map((row) => (
+                      <div
+                        key={row.workspaceName}
+                        className="flex items-center gap-2 text-sm"
+                      >
+                        <span className="flex-1 truncate">{row.workspaceName}</span>
+                        <Badge
+                          variant={
+                            row.state === 'conflict'
+                              ? 'destructive'
+                              : row.state === 'bound'
+                                ? 'default'
+                                : 'secondary'
+                          }
+                        >
+                          {row.state === 'bound'
+                            ? t('settings.agents.bindingBound')
+                            : row.state === 'conflict'
+                              ? t('settings.agents.bindingConflict')
+                              : t('settings.agents.bindingUnbound')}
+                        </Badge>
+                        <span className="font-mono text-xs text-muted-foreground">
+                          {t('settings.agents.generation', { n: row.generation ?? '—' })}
+                        </span>
+                        <span className="font-mono text-xs text-muted-foreground">
+                          {t('settings.agents.sessionRevision', {
+                            m: row.sessionProfileRevision ?? '—',
+                          })}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Execution */}
             <div className="space-y-3">

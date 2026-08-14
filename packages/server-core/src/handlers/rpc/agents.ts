@@ -24,9 +24,11 @@ import {
   ensureAgentSession,
   resolveBinding,
   AgentSessionBindingError,
+  type AgentBindingDiagnostics,
   type CreateAgentInput,
   type UpdateAgentInput,
 } from '@craft-agent/shared/agents'
+import { loadSession } from '@craft-agent/shared/sessions'
 import type { RpcServer } from '@craft-agent/server-core/transport'
 import type { HandlerDeps } from '../handler-deps'
 
@@ -85,7 +87,19 @@ export function registerAgentsHandlers(server: RpcServer, deps: HandlerDeps): vo
   server.handle(RPC_CHANNELS.agentSessions.LIST, async (_ctx, workspaceId: string) => {
     const ws = getWorkspaceByNameOrId(workspaceId)
     if (!ws) throw new Error('Workspace not found')
-    return listBindings(ws.rootPath)
+    // Diagnostics enrichment (Issue #15): attach the canonical session's
+    // profile revision when readable; unreadable/missing sessions stay
+    // without the field (super-set of the previous shape — PS consumers
+    // are unaffected).
+    return listBindings(ws.rootPath).map((binding): AgentBindingDiagnostics => {
+      if (binding.state === 'bound' && binding.canonicalSessionId) {
+        const session = loadSession(ws.rootPath, binding.canonicalSessionId)
+        if (session?.agentProfileRevision !== undefined) {
+          return { ...binding, sessionProfileRevision: session.agentProfileRevision }
+        }
+      }
+      return binding
+    })
   })
 
   server.handle(RPC_CHANNELS.agentSessions.ENSURE, async (_ctx, workspaceId: string, agentId: string) => {
