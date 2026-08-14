@@ -27,7 +27,7 @@ import {
 import {
   ensureAgentSession,
   getBinding,
-  loadBindings,
+  loadBinding,
   AgentSessionBindingError,
   type AgentSessionError,
 } from '../bindings.ts';
@@ -108,8 +108,8 @@ describe('Gate A: restart recovery', () => {
     const dispatched = await ensureAgentSession(ws, 'ws-1', agent.id);
 
     // Simulate restart: re-read everything from disk (no in-memory state).
-    const binding = loadBindings(ws).bindings.find((b) => b.agentId === agent.id);
-    expect(binding?.state).toBe('active');
+    const binding = loadBinding(ws, agent.id);
+    expect(binding?.state).toBe('bound');
     expect(binding?.canonicalSessionId).toBe(dispatched.id);
 
     const recovered = loadSession(ws, dispatched.id);
@@ -117,6 +117,7 @@ describe('Gate A: restart recovery', () => {
     expect(recovered!.agentId).toBe(agent.id);
     expect(recovered!.agentProfileRevision).toBe(1);
     expect(recovered!.agentProfileSnapshot).toEqual(dispatched.agentProfileSnapshot);
+    expect(recovered!.agentBindingGeneration).toBe(binding?.generation);
     expect(recovered!.thinkingLevel).toBe('max');
     expect(recovered!.enabledSourceSlugs).toEqual(['github', 'linear']);
 
@@ -177,7 +178,7 @@ describe('Gate A: retire/restore during binding lifecycle', () => {
     const session = await ensureAgentSession(ws, 'ws-1', agent.id);
 
     retireAgent(agent.id);
-    expect(getBinding(ws, agent.id)?.state).toBe('active');
+    expect(getBinding(ws, agent.id)?.state).toBe('bound');
     expect(getBinding(ws, agent.id)?.generation).toBe(1);
     await expectError('AGENT_RETIRED', () => ensureAgentSession(ws, 'ws-1', agent.id));
 
@@ -197,5 +198,98 @@ describe('Gate A: error propagation in dispatch flow', () => {
 
   it('throws AGENT_NOT_FOUND for unknown agents', async () => {
     await expectError('AGENT_NOT_FOUND', () => ensureAgentSession(ws, 'ws-1', 'agent_deadbeef'));
+  });
+});
+
+describe('Gate A: failure paths (baseline acceptance)', () => {
+  it('concurrent ensureAgentSession calls materialize exactly one session (gen 1)', async () => {
+    const agent = makeAgent();
+
+    // Parallel dispatch — e.g. PS fan-out against the same (workspace, agent).
+    const results = await Promise.all(
+      Array.from({ length: 8 }, () => ensureAgentSession(ws, 'ws-1', agent.id))
+    );
+
+    const ids = new Set(results.map((s) => s.id));
+    expect(ids.size).toBe(1);
+    const binding = getBinding(ws, agent.id);
+    expect(binding?.state).toBe('bound');
+    expect(binding?.generation).toBe(1);
+    expect(binding?.canonicalSessionId).toBe(results[0]!.id);
+    // Exactly one session directory on disk.
+    const { readdirSync } = await import('node:fs');
+    expect(readdirSync(join(ws, '.craft-agent', 'sessions'))).toHaveLength(1);
+  });
+
+  it('corrupt snapshot (agentId set, snapshot missing) → AGENT_SESSION_UNAVAILABLE, never re-resolved from latest profile', async () => {
+    const agent = makeAgent();
+    const session = await ensureAgentSession(ws, 'ws-1', agent.id);
+
+    // Tamper: strip the snapshot while keeping agentId + generation intact.
+    const sessionPath = join(ws, '.craft-agent', 'sessions', session.id, 'session.jsonl');
+    const { readFileSync, writeFileSync } = await import('node:fs');
+    const lines = readFileSync(sessionPath, 'utf-8').split('\n');
+    const header = JSON.parse(lines[0]!);
+    delete header.agentProfileSnapshot;
+    lines[0] = JSON.stringify(header);
+    writeFileSync(sessionPath, lines.join('\n'), 'utf-8');
+
+    // The next revision exists — but the corrupt session must NOT be silently
+    // re-resolved from it (#3 contract).
+    updateAgent(agent.id, { systemPrompt: 'NEW prompt that must not be adopted.' });
+
+    await expectError('AGENT_SESSION_UNAVAILABLE', () => ensureAgentSession(ws, 'ws-1', agent.id));
+    // Binding untouched — still pointing at the corrupt session.
+    const binding = getBinding(ws, agent.id);
+    expect(binding?.state).toBe('bound');
+    expect(binding?.canonicalSessionId).toBe(session.id);
+    expect(binding?.generation).toBe(1);
+  });
+
+  it('legacy non-Agent sessions are never adopted and never acquire bindings', async () => {
+    const agent = makeAgent();
+
+    // Pre-existing legacy session: no agent fields at all.
+    const { createSession, listSessions } = await import('../../sessions/storage.ts');
+    const legacy = await createSession(ws, { name: 'legacy chat' });
+    expect(legacy.agentId).toBeUndefined();
+
+    const materialized = await ensureAgentSession(ws, 'ws-1', agent.id);
+    expect(materialized.id).not.toBe(legacy.id);
+    expect(materialized.agentId).toBe(agent.id);
+
+    // Binding file exists only for the agent; legacy session has none.
+    expect(getBinding(ws, legacy.id ?? 'none')).toBeNull();
+    // Legacy session was not mutated.
+    const legacyAfter = loadSession(ws, legacy.id)!;
+    expect(legacyAfter.agentId).toBeUndefined();
+    expect(legacyAfter.agentBindingGeneration).toBeUndefined();
+    // Both sessions still listed — the legacy one untouched by the agent layer.
+    expect(listSessions(ws).map((s) => s.id).sort()).toEqual([legacy.id, materialized.id].sort());
+  });
+
+  it('crash between session persist and binding publish: orphan is recovered, not duplicated', async () => {
+    const agent = makeAgent();
+    const session = await ensureAgentSession(ws, 'ws-1', agent.id);
+
+    // Crash window: binding reverts to unbound gen 0, session (gen 1) persists.
+    const { saveBinding } = await import('../bindings.ts');
+    saveBinding(ws, {
+      schemaVersion: 1,
+      workspaceId: 'ws-1',
+      agentId: agent.id,
+      state: 'unbound',
+      generation: 0,
+      createdAt: 1,
+      updatedAt: 1,
+    });
+
+    const recovered = await ensureAgentSession(ws, 'ws-1', agent.id);
+    expect(recovered.id).toBe(session.id);
+    expect(recovered.agentBindingGeneration).toBe(1);
+    const binding = getBinding(ws, agent.id);
+    expect(binding?.state).toBe('bound');
+    expect(binding?.generation).toBe(1);
+    expect(binding?.canonicalSessionId).toBe(session.id);
   });
 });

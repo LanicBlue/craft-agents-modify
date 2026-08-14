@@ -69,6 +69,7 @@ export const SESSION_PERSISTENT_FIELDS = [
   'agentId',
   'agentProfileRevision',
   'agentProfileSnapshot',
+  'agentBindingGeneration',
 ] as const;
 
 export type SessionPersistentField = typeof SESSION_PERSISTENT_FIELDS[number];
@@ -235,6 +236,8 @@ export interface SessionConfig {
   agentProfileRevision?: number;
   /** Immutable resolved configuration snapshot at materialization time. */
   agentProfileSnapshot?: AgentProfileSnapshot;
+  /** Binding generation at materialization time — distinct from agentProfileRevision (Issue #4 baseline). */
+  agentBindingGeneration?: number;
 }
 
 /**
@@ -348,6 +351,8 @@ export interface SessionHeader {
   agentProfileRevision?: number;
   /** Immutable resolved configuration snapshot at materialization time. */
   agentProfileSnapshot?: AgentProfileSnapshot;
+  /** Binding generation at materialization time — distinct from agentProfileRevision (Issue #4 baseline). */
+  agentBindingGeneration?: number;
   // Pre-computed fields for fast list loading
   /** Number of messages in session */
   messageCount: number;

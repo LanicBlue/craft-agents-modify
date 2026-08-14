@@ -93,8 +93,10 @@ export function registerAgentsHandlers(server: RpcServer, deps: HandlerDeps): vo
     if (!ws) throw new Error('Workspace not found')
     try {
       const session = await ensureAgentSession(ws.rootPath, ws.id, agentId)
-      // sessionId is diagnostic/observability metadata, not a workflow reference
-      return { sessionId: session.id, agentId, workspaceId }
+      // sessionId / bindingGeneration are diagnostic/observability metadata,
+      // not a workflow reference — Project Service addresses by (workspaceId, agentId).
+      const bindingGeneration = resolveBinding(ws.rootPath, agentId)?.generation
+      return { sessionId: session.id, agentId, workspaceId, bindingGeneration }
     } catch (e) {
       throw bindingErrorToRpc(e)
     }
@@ -110,7 +112,8 @@ export function registerAgentsHandlers(server: RpcServer, deps: HandlerDeps): vo
         // existing session afterwards — session replacement is transparent.
         const session = await ensureAgentSession(ws.rootPath, ws.id, agentId)
         await deps.sessionManager.sendMessage(session.id, message)
-        return { sessionId: session.id, accepted: true }
+        const bindingGeneration = resolveBinding(ws.rootPath, agentId)?.generation
+        return { sessionId: session.id, accepted: true, bindingGeneration }
       } catch (e) {
         throw bindingErrorToRpc(e)
       }

@@ -29,7 +29,6 @@ import {
   SettingsInput,
   SettingsSelect,
   SettingsTextarea,
-  SettingsSegmentedControl,
 } from '@/components/settings'
 import { useRegisterModal } from '@/context/ModalContext'
 import type { AgentRecord, AgentProfileRevision, CreateAgentInput, UpdateAgentInput, AgentExecutionConfig } from '@craft-agent/shared/agents'
@@ -51,6 +50,14 @@ const THINKING_OPTIONS: ThinkingLevel[] = ['off', 'low', 'medium', 'high', 'xhig
 const PERMISSION_OPTIONS: PermissionMode[] = ['safe', 'ask', 'allow-all']
 const HARNESS_OPTIONS = ['codex', 'claude', 'kimi'] as const
 const CONFIG_MODE_OPTIONS = ['local-inherit', 'managed'] as const
+
+/**
+ * P0 scope (#15/#17): the editor only exposes craft-backend. External-harness
+ * execution stays a first-class citizen in the domain model, but the P0 UI
+ * never creates or edits it — an existing external-harness revision renders
+ * read-only so a save can never silently convert the execution kind.
+ */
+const EDITOR_KIND: 'craft-backend' = 'craft-backend'
 
 /** Parse "a, b, c" → ["a","b","c"]; empty → undefined */
 function parseSources(raw: string): string[] | undefined {
@@ -76,7 +83,9 @@ export function AgentEditorDialog({
   // --- Form state ---
   const [name, setName] = React.useState('')
   const [description, setDescription] = React.useState('')
-  const [kind, setKind] = React.useState<'craft-backend' | 'external-harness'>('craft-backend')
+  // 'external-harness' only ever appears when EDITING an agent whose latest
+  // revision already uses it — never selectable, never editable (read-only).
+  const [kind, setKind] = React.useState<'craft-backend' | 'external-harness'>(EDITOR_KIND)
   const [llmConnection, setLlmConnection] = React.useState('')
   const [model, setModel] = React.useState('')
   const [harness, setHarness] = React.useState<string>('codex')
@@ -99,7 +108,7 @@ export function AgentEditorDialog({
     setName(agent?.name ?? '')
     setDescription(agent?.description ?? '')
     setSystemPrompt('')
-    setKind('craft-backend')
+    setKind(EDITOR_KIND)
     setLlmConnection('')
     setModel('')
     setHarness('codex')
@@ -142,16 +151,12 @@ export function AgentEditorDialog({
   const executionChanged = React.useMemo(() => {
     if (!isEdit || !revision) return false
     const exec = revision.execution
+    // External-harness execution is read-only in the P0 editor (#15) — it is
+    // never diffed, so a save never rewrites or converts it.
+    if (exec.kind !== 'craft-backend') return false
     if (kind !== exec.kind) return true
-    if (exec.kind === 'craft-backend') {
-      return llmConnection !== (exec.llmConnection ?? '') || model !== (exec.model ?? '')
-    }
-    return (
-      harness !== exec.harness ||
-      model !== (exec.model ?? '') ||
-      configMode !== (exec.configMode ?? 'managed')
-    )
-  }, [isEdit, revision, kind, llmConnection, model, harness, configMode])
+    return llmConnection !== (exec.llmConnection ?? '') || model !== (exec.model ?? '')
+  }, [isEdit, revision, kind, llmConnection, model])
 
   const systemPromptChanged = isEdit && !!revision && systemPrompt !== revision.systemPrompt
   const thinkingLevelChanged = isEdit && !!revision && thinkingLevel !== (revision.thinkingLevel ?? 'medium')
@@ -272,14 +277,6 @@ export function AgentEditorDialog({
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
                 {t('settings.agents.execution')}
               </p>
-              <SettingsSegmentedControl
-                value={kind}
-                onValueChange={setKind}
-                options={[
-                  { value: 'craft-backend', label: t('settings.agents.craftBackend') },
-                  { value: 'external-harness', label: t('settings.agents.externalHarness') },
-                ]}
-              />
               {kind === 'craft-backend' ? (
                 <>
                   <SettingsInput
@@ -296,11 +293,14 @@ export function AgentEditorDialog({
                   />
                 </>
               ) : (
+                // Existing external-harness agent: read-only display (#15 — the
+                // P0 editor exposes craft-backend only and never converts).
                 <>
                   <SettingsSelect
                     label={t('settings.agents.harness')}
                     value={harness}
                     onValueChange={setHarness}
+                    disabled
                     options={HARNESS_OPTIONS.map((h) => ({ value: h, label: h }))}
                   />
                   <SettingsInput
@@ -308,11 +308,13 @@ export function AgentEditorDialog({
                     value={model}
                     onChange={setModel}
                     placeholder={t('settings.agents.model')}
+                    disabled
                   />
                   <SettingsSelect
                     label={t('settings.agents.configMode')}
                     value={configMode}
                     onValueChange={setConfigMode}
+                    disabled
                     options={CONFIG_MODE_OPTIONS.map((c) => ({ value: c, label: c }))}
                   />
                 </>

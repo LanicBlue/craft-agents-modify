@@ -1,5 +1,12 @@
 /**
- * Tests for Agent × Workspace session bindings (Issue #4).
+ * Tests for Agent × Workspace session bindings (Issue #4, baseline rework).
+ *
+ * Implementation baseline contract (supersedes earlier 'active' semantics):
+ * - per-agent binding files (agent-sessions/{agentId}.json)
+ * - bound / unbound / conflict states; 'bound' is validated on reuse against
+ *   the session's agentBindingGeneration
+ * - bound + canonical session missing/mismatched → AGENT_SESSION_UNAVAILABLE
+ *   (binding untouched — recovery is manual or via deleteSession's hook)
  *
  * Isolation: the agents registry honors CRAFT_CONFIG_DIR at call time (see
  * agents/storage.ts getAgentsDir), so setting the env var in beforeAll is
@@ -8,7 +15,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'bun:test';
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -22,9 +29,9 @@ import {
   unbindBySessionId,
   resolveBinding,
   getBinding,
-  loadBindings,
-  saveBindings,
-  getBindingsPath,
+  loadBinding,
+  saveBinding,
+  getBindingPath,
   AgentSessionBindingError,
   type AgentSessionError,
 } from '../bindings.ts';
@@ -72,7 +79,7 @@ afterEach(() => {
 });
 
 describe('ensureAgentSession', () => {
-  it('creates a session and an active binding (generation 1) on first call', async () => {
+  it('creates a session and a bound binding (generation 1) on first call', async () => {
     const agent = createTestAgent();
 
     const session = await ensureAgentSession(ws, 'ws-1', agent.id);
@@ -80,14 +87,17 @@ describe('ensureAgentSession', () => {
     expect(existsSync(join(ws, '.craft-agent', 'sessions', session.id, 'session.jsonl'))).toBe(true);
     expect(session.agentId).toBe(agent.id);
     expect(session.agentProfileRevision).toBe(1);
+    expect(session.agentBindingGeneration).toBe(1);
     const binding = getBinding(ws, agent.id);
-    expect(binding?.state).toBe('active');
+    expect(binding?.state).toBe('bound');
     expect(binding?.generation).toBe(1);
     expect(binding?.canonicalSessionId).toBe(session.id);
     expect(binding?.workspaceId).toBe('ws-1');
+    // Session generation and binding generation agree.
+    expect(binding?.generation).toBe(session.agentBindingGeneration);
   });
 
-  it('reuses the same session on subsequent calls', async () => {
+  it('reuses the same session on subsequent calls without bumping generation', async () => {
     const agent = createTestAgent();
     const first = await ensureAgentSession(ws, 'ws-1', agent.id);
 
@@ -95,6 +105,7 @@ describe('ensureAgentSession', () => {
 
     expect(second.id).toBe(first.id);
     expect(getBinding(ws, agent.id)?.generation).toBe(1);
+    expect(second.agentBindingGeneration).toBe(1);
   });
 
   it('replaces the session after deleteSession (generation+1)', async () => {
@@ -107,21 +118,40 @@ describe('ensureAgentSession', () => {
 
     const second = await ensureAgentSession(ws, 'ws-1', agent.id);
     expect(second.id).not.toBe(first.id);
-    expect(getBinding(ws, agent.id)?.state).toBe('active');
+    expect(getBinding(ws, agent.id)?.state).toBe('bound');
     expect(getBinding(ws, agent.id)?.generation).toBe(2);
+    expect(second.agentBindingGeneration).toBe(2);
   });
 
-  it('auto-unbinds and recreates when the session was deleted externally', async () => {
+  it('throws AGENT_SESSION_UNAVAILABLE when the bound session was deleted externally', async () => {
     const agent = createTestAgent();
     const first = await ensureAgentSession(ws, 'ws-1', agent.id);
 
-    // Delete the session directory directly (bypassing deleteSession hook)
+    // Delete the session directory directly (bypassing the deleteSession hook).
     rmSync(join(ws, '.craft-agent', 'sessions', first.id), { recursive: true, force: true });
 
-    const second = await ensureAgentSession(ws, 'ws-1', agent.id);
-    expect(second.id).not.toBe(first.id);
-    expect(getBinding(ws, agent.id)?.state).toBe('active');
-    expect(getBinding(ws, agent.id)?.generation).toBe(2);
+    await expectError('AGENT_SESSION_UNAVAILABLE', () => ensureAgentSession(ws, 'ws-1', agent.id));
+    // Binding stays 'bound' and untouched — no silent rebuild.
+    const binding = getBinding(ws, agent.id);
+    expect(binding?.state).toBe('bound');
+    expect(binding?.canonicalSessionId).toBe(first.id);
+    expect(binding?.generation).toBe(1);
+  });
+
+  it('throws AGENT_SESSION_UNAVAILABLE when the bound session mismatches the binding generation', async () => {
+    const agent = createTestAgent();
+    const first = await ensureAgentSession(ws, 'ws-1', agent.id);
+
+    // Tamper: overwrite the session's generation so it no longer matches the binding.
+    const sessionPath = join(ws, '.craft-agent', 'sessions', first.id, 'session.jsonl');
+    const headerLine = readFileSync(sessionPath, 'utf-8').split('\n')[0]!;
+    const stored = JSON.parse(headerLine);
+    stored.agentBindingGeneration = 99;
+    const headerWithMessages = [JSON.stringify(stored), ...readFileSync(sessionPath, 'utf-8').split('\n').slice(1)].join('\n');
+    writeFileSync(sessionPath, headerWithMessages, 'utf-8');
+
+    await expectError('AGENT_SESSION_UNAVAILABLE', () => ensureAgentSession(ws, 'ws-1', agent.id));
+    expect(getBinding(ws, agent.id)?.state).toBe('bound');
   });
 
   it('throws AGENT_RETIRED for retired agents', async () => {
@@ -137,8 +167,8 @@ describe('ensureAgentSession', () => {
 
   it('throws AGENT_BINDING_CONFLICT for conflict bindings without auto-resolving', async () => {
     const agent = createTestAgent();
-    const registry = loadBindings(ws);
-    registry.bindings.push({
+    saveBinding(ws, {
+      schemaVersion: 1,
       workspaceId: 'ws-1',
       agentId: agent.id,
       canonicalSessionId: undefined,
@@ -147,7 +177,6 @@ describe('ensureAgentSession', () => {
       createdAt: 1,
       updatedAt: 1,
     });
-    saveBindings(ws, registry);
 
     await expectError('AGENT_BINDING_CONFLICT', () => ensureAgentSession(ws, 'ws-1', agent.id));
     // Still conflict — untouched
@@ -156,16 +185,16 @@ describe('ensureAgentSession', () => {
 });
 
 describe('retire/restore interplay', () => {
-  it('retire/restore never touch bindings.json (byte-identical)', async () => {
+  it('retire/restore never touch the binding file (byte-identical)', async () => {
     const agent = createTestAgent();
     await ensureAgentSession(ws, 'ws-1', agent.id);
-    const before = readFileSync(getBindingsPath(ws), 'utf-8');
+    const before = readFileSync(getBindingPath(ws, agent.id), 'utf-8');
 
     retireAgent(agent.id);
-    expect(readFileSync(getBindingsPath(ws), 'utf-8')).toBe(before);
+    expect(readFileSync(getBindingPath(ws, agent.id), 'utf-8')).toBe(before);
 
     restoreAgent(agent.id);
-    expect(readFileSync(getBindingsPath(ws), 'utf-8')).toBe(before);
+    expect(readFileSync(getBindingPath(ws, agent.id), 'utf-8')).toBe(before);
   });
 
   it('after restore, ensure reuses the still-existing session', async () => {
@@ -188,10 +217,10 @@ describe('resolveBinding / unbindBySessionId', () => {
     const session = await ensureAgentSession(ws, 'ws-1', agent.id);
 
     // Delete the session externally — resolveBinding must still return the
-    // stale active binding as-is (no auto-unbind).
+    // stale bound binding as-is (no auto-unbind).
     rmSync(join(ws, '.craft-agent', 'sessions', session.id), { recursive: true, force: true });
     const resolved = resolveBinding(ws, agent.id);
-    expect(resolved?.state).toBe('active');
+    expect(resolved?.state).toBe('bound');
     expect(resolved?.canonicalSessionId).toBe(session.id);
   });
 
@@ -200,7 +229,7 @@ describe('resolveBinding / unbindBySessionId', () => {
     await ensureAgentSession(ws, 'ws-1', agent.id);
 
     unbindBySessionId(ws, 'unrelated-session');
-    expect(getBinding(ws, agent.id)?.state).toBe('active');
+    expect(getBinding(ws, agent.id)?.state).toBe('bound');
   });
 
   it('unbindBySessionId unbinds the matching session and preserves generation', async () => {
@@ -216,11 +245,75 @@ describe('resolveBinding / unbindBySessionId', () => {
 });
 
 describe('bindings storage resilience', () => {
-  it('corrupt bindings.json returns an empty registry without throwing', () => {
+  it('corrupt binding file returns null without throwing', () => {
+    const agent = createTestAgent();
     mkdirSync(join(ws, '.craft-agent', 'agent-sessions'), { recursive: true });
-    writeFileSync(getBindingsPath(ws), '{corrupt json', 'utf-8');
+    writeFileSync(getBindingPath(ws, agent.id), '{corrupt json', 'utf-8');
 
-    expect(() => loadBindings(ws)).not.toThrow();
-    expect(loadBindings(ws).bindings).toEqual([]);
+    expect(() => loadBinding(ws, agent.id)).not.toThrow();
+    expect(loadBinding(ws, agent.id)).toBeNull();
+  });
+});
+
+describe('crash recovery (orphan session candidates, baseline step 5)', () => {
+  /**
+   * Simulate a crash between session persistence (step 6) and binding publish
+   * (step 7) by rewriting the published binding back to 'unbound' while the
+   * on-disk session keeps claiming generation N+1.
+   */
+  function revertBindingToUnbound(agentId: string, generation: number) {
+    const binding = loadBinding(ws, agentId)!;
+    saveBinding(ws, {
+      ...binding,
+      state: 'unbound',
+      canonicalSessionId: undefined,
+      generation,
+      updatedAt: Date.now(),
+    });
+  }
+
+  it('adopts the unique orphan claiming generation N+1 instead of creating a duplicate', async () => {
+    const agent = createTestAgent();
+    const first = await ensureAgentSession(ws, 'ws-1', agent.id);
+
+    // Crash window: session (gen 1) persisted, binding reverted to unbound gen 0.
+    revertBindingToUnbound(agent.id, 0);
+
+    const recovered = await ensureAgentSession(ws, 'ws-1', agent.id);
+
+    // The orphan was recovered — same session, no duplicate materialization.
+    expect(recovered.id).toBe(first.id);
+    expect(recovered.agentBindingGeneration).toBe(1);
+    const binding = getBinding(ws, agent.id);
+    expect(binding?.state).toBe('bound');
+    expect(binding?.canonicalSessionId).toBe(first.id);
+    expect(binding?.generation).toBe(1);
+    // Exactly one session for this agent on disk.
+    const sessionDir = join(ws, '.craft-agent', 'sessions');
+    expect(readdirSync(sessionDir).filter((id) => id !== '.DS_Store')).toHaveLength(1);
+  });
+
+  it('multiple orphans claiming the same generation → AGENT_BINDING_CONFLICT, never auto-resolved', async () => {
+    const agent = createTestAgent();
+    await ensureAgentSession(ws, 'ws-1', agent.id);
+
+    // Manufacture a second orphan claiming generation 1 (crash-window duplicate).
+    const { createSession } = await import('../../sessions/storage.ts');
+    const { loadLatestRevision, resolveAgentSnapshot } = await import('../storage.ts');
+    const revision = loadLatestRevision(agent.id)!;
+    const duplicate = await createSession(ws, {
+      agentId: agent.id,
+      agentProfileRevision: revision.revision,
+      agentProfileSnapshot: resolveAgentSnapshot(revision),
+      agentBindingGeneration: 1,
+    });
+    expect(duplicate.agentBindingGeneration).toBe(1);
+
+    // Both sessions now claim generation 1 against an unbound gen-0 binding.
+    revertBindingToUnbound(agent.id, 0);
+
+    await expectError('AGENT_BINDING_CONFLICT', () => ensureAgentSession(ws, 'ws-1', agent.id));
+    // Binding stays unbound — untouched, no silent winner.
+    expect(getBinding(ws, agent.id)?.state).toBe('unbound');
   });
 });

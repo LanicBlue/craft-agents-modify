@@ -199,6 +199,7 @@ export async function createSession(
     agentId?: string;
     agentProfileRevision?: number;
     agentProfileSnapshot?: AgentProfileSnapshot;
+    agentBindingGeneration?: number;
   }
 ): Promise<SessionConfig> {
   ensureSessionsDir(workspaceRootPath);
@@ -240,6 +241,7 @@ export async function createSession(
     agentId: options?.agentId,
     agentProfileRevision: options?.agentProfileRevision,
     agentProfileSnapshot: options?.agentProfileSnapshot,
+    agentBindingGeneration: options?.agentBindingGeneration,
   };
 
   // Save empty session
