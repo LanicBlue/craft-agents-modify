@@ -40,6 +40,7 @@ import {
 } from '@craft-agent/shared/config'
 import type { ActiveSessionInfo, SessionProcessingStatus } from '@craft-agent/core/types'
 import { loadWorkspaceConfig } from '@craft-agent/shared/workspaces'
+import { assertSupportedExecutionKind } from '@craft-agent/shared/agents'
 import {
   // Session persistence functions
   listSessions as listStoredSessions,
@@ -3330,6 +3331,10 @@ export class SessionManager implements ISessionManager {
    * 4. fallback: no connection configured
    */
   private async getOrCreateAgent(managed: ManagedSession): Promise<AgentInstance> {
+    // Execution seam (#8): reject unsupported external-harness execution kinds
+    // before attempting backend creation. No-op for craft-backend / non-agent sessions.
+    assertSupportedExecutionKind(managed.agentId)
+
     // Refresh runtime config in-place when the connection has drifted since
     // the agent was created. May null out `managed.agent` if the in-place
     // refresh fails, in which case the create branch below rebuilds it.
