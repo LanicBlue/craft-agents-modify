@@ -834,6 +834,15 @@
   "settings.about.title": "Acerca de",
   "settings.about.updateReady": "Actualización lista",
   "settings.about.version": "Versión",
+
+  "settings.agents.active": "Active",
+  "settings.agents.agentList": "Agent Profiles",
+  "settings.agents.description": "Manage agent profiles",
+  "settings.agents.noAgents": "No agents configured",
+  "settings.agents.retired": "Retired",
+  "settings.agents.revision": "Revision",
+  "settings.agents.title": "Agents",
+
   "settings.ai.addConnection": "+ Añadir conexión",
   "settings.ai.connection": "Conexión",
   "settings.ai.connectionDesc": "Conexión API para nuevos chats",

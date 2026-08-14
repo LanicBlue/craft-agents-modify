@@ -834,6 +834,15 @@
   "settings.about.title": "このアプリについて",
   "settings.about.updateReady": "アップデート準備完了",
   "settings.about.version": "バージョン",
+
+  "settings.agents.active": "Active",
+  "settings.agents.agentList": "Agent Profiles",
+  "settings.agents.description": "Manage agent profiles",
+  "settings.agents.noAgents": "No agents configured",
+  "settings.agents.retired": "Retired",
+  "settings.agents.revision": "Revision",
+  "settings.agents.title": "Agents",
+
   "settings.ai.addConnection": "+ 接続を追加",
   "settings.ai.connection": "接続",
   "settings.ai.connectionDesc": "新規チャットのAPI接続",

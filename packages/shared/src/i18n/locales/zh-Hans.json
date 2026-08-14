@@ -834,6 +834,15 @@
   "settings.about.title": "关于",
   "settings.about.updateReady": "更新就绪",
   "settings.about.version": "版本",
+
+  "settings.agents.active": "活跃",
+  "settings.agents.agentList": "智能体配置",
+  "settings.agents.description": "管理智能体配置",
+  "settings.agents.noAgents": "尚未配置智能体",
+  "settings.agents.retired": "已停用",
+  "settings.agents.revision": "修订版",
+  "settings.agents.title": "智能体",
+
   "settings.ai.addConnection": "+ 添加连接",
   "settings.ai.connection": "连接",
   "settings.ai.connectionDesc": "新聊天的 API 连接",
