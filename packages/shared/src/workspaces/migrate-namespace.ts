@@ -16,6 +16,7 @@ import {
   renameSync,
   cpSync,
   rmSync,
+  readdirSync,
 } from 'fs';
 import { join } from 'path';
 // NOTE: circular import with ./storage.ts is safe — WORKSPACE_NAMESPACE is only
@@ -68,8 +69,10 @@ function ensureCriticalSubdirs(namespaceDir: string): void {
  * .craft-agent/ namespace layout. Safe to call on every load; no-ops quickly
  * for migrated or fresh workspaces.
  *
- * Conflict policy: items already present in .craft-agent/ are never overwritten
- * or touched — only missing targets are migrated from the legacy locations.
+ * Conflict policy: when .craft-agent/ already holds content AND legacy layout
+ * files still exist at the root, migration aborts with an explicit warning
+ * instead of merging (never overwrites or touches existing content). Empty
+ * namespaces and already-migrated workspaces are unaffected.
  *
  * @param rootPath - Absolute path to workspace root folder
  */
@@ -102,6 +105,22 @@ export function ensureWorkspaceNamespace(rootPath: string): void {
   }
 
   debug(`[migrate-namespace] Migrating legacy layout at ${rootPath}`);
+
+  // Check for conflict: .craft-agent/ already has content AND legacy files exist
+  if (existsSync(nsDir)) {
+    const nsContents = readdirSync(nsDir);
+    if (nsContents.length > 0) {
+      // Explicit conflict: refuse to merge into pre-existing namespace content
+      console.warn(
+        `[craft-agent] Workspace namespace conflict at ${rootPath}:\n` +
+        `  .craft-agent/ already contains ${nsContents.length} item(s): ${nsContents.slice(0, 5).join(', ')}${nsContents.length > 5 ? '...' : ''}\n` +
+        `  Legacy files also present at workspace root.\n` +
+        `  Migration skipped to avoid overwriting existing content.\n` +
+        `  Manual resolution required: move legacy files into .craft-agent/ or remove them.`
+      );
+      return;  // Abort migration entirely
+    }
+  }
 
   if (!existsSync(nsDir)) {
     try {
