@@ -7,3 +7,4 @@
 export * from './types.ts';
 export * from './storage.ts';
 export * from './bindings.ts';
+export { createProjectServiceMcpServer, type ProjectServiceMcpOptions } from './project-service-mcp.ts';

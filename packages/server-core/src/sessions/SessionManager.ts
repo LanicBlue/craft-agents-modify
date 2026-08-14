@@ -873,6 +873,8 @@ interface ManagedSession {
   taskNodeCount?: number
   // Tasks Conductor: hidden generate-time orchestrator awaiting validated adoption (off the board)
   taskDraft?: boolean
+  /** Agent identity this session was materialized from (undefined = no agent). */
+  agentId?: string
   // Working directory for this session (used by agent for bash commands)
   workingDirectory?: string
   // SDK cwd for session storage - set once at creation, never changes.
@@ -3444,6 +3446,7 @@ export class SessionManager implements ISessionManager {
         permissionMode: managed.permissionMode,
         previousPermissionMode: managed.previousPermissionMode,
         projectId: managed.projectId,
+        agentId: managed.agentId,
       }
 
       const onSdkSessionIdUpdate = (sdkSessionId: string) => {

@@ -45,6 +45,7 @@ import {
   cleanupSessionScopedTools,
   type AuthRequest,
 } from './session-scoped-tools.ts';
+import { createProjectServiceMcpServer } from '../agents/project-service-mcp.ts';
 import { type AutomationSystem, type SdkAutomationCallbackMatcher } from '../automations/index.ts';
 import {
   getPermissionMode,
@@ -1106,6 +1107,15 @@ export class ClaudeAgent extends BaseAgent {
         // so the SDK produces correct tool names: mcp__{slug}__{toolName}
         ...sourceProxies,
       };
+
+      // Project Service MCP tools — agent sessions only (Issue #6)
+      if (this.config.session?.agentId) {
+        fullMcpServers['project-service'] = createProjectServiceMcpServer({
+          workspaceRootPath: this.workspaceRootPath,
+          agentId: this.config.session.agentId,
+          sessionId,
+        });
+      }
 
       // Mini agents: filter to minimal set using centralized keys
       // Regular agents: use full set including docs and user sources
