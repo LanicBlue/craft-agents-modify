@@ -15,6 +15,7 @@ import { homedir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { expandPath } from './path-processor.ts';
 import { getBrowserToolEnabled } from '../../config/storage.ts';
+import { getWorkspaceSourcesPath } from '../../workspaces/storage.ts';
 
 // ============================================================
 // Types
@@ -74,7 +75,8 @@ const RULES: PrerequisiteRule[] = [
     resolveRequiredPath: (toolName: string, workspaceRootPath: string) => {
       const parts = toolName.split('__');
       const slug = parts[1]!;
-      const guidePath = resolve(workspaceRootPath, 'sources', slug, 'guide.md');
+      // Namespaced layout (Issue #16): guides live under .craft-agent/sources.
+      const guidePath = join(getWorkspaceSourcesPath(workspaceRootPath), slug, 'guide.md');
       return existsSync(guidePath) ? guidePath : null;
     },
     blockMessage:
@@ -88,7 +90,8 @@ const RULES: PrerequisiteRule[] = [
     },
     resolveRequiredPath: (toolName: string, workspaceRootPath: string) => {
       const slug = toolName.slice(4); // Remove 'api_' prefix
-      const guidePath = resolve(workspaceRootPath, 'sources', slug, 'guide.md');
+      // Namespaced layout (Issue #16): guides live under .craft-agent/sources.
+      const guidePath = join(getWorkspaceSourcesPath(workspaceRootPath), slug, 'guide.md');
       return existsSync(guidePath) ? guidePath : null;
     },
     blockMessage:

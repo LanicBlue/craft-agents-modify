@@ -5,24 +5,42 @@
  * until required files (like guide.md) have been read.
  */
 import { describe, it, expect, beforeEach, mock } from 'bun:test';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { PrerequisiteManager } from '../prerequisite-manager.ts';
+import { CONFIG_DIR } from '../../../config/paths.ts';
 
-// Mock existsSync to control guide.md existence
+// Mock existsSync to control guide.md existence. Also serve a valid
+// config-defaults.json so loadConfigDefaults() (browser-tool rule) works
+// without a real ~/.craft-agent install — the previous alias of readFileSync
+// to existsSync made every checkPrerequisites call throw when the defaults
+// file was absent (pre-existing harness bug, fixed with Wave 1 R5).
 const originalExistsSync = existsSync;
+const originalReadFileSync = readFileSync;
 let mockExistsPaths: Set<string> = new Set();
+const CONFIG_DEFAULTS_PATH = join(CONFIG_DIR, 'config-defaults.json');
+const CONFIG_DEFAULTS_CONTENT = JSON.stringify({
+  defaults: { browserToolEnabled: true },
+  workspaceDefaults: {},
+});
 
 mock.module('node:fs', () => ({
-  existsSync: (path: string) => mockExistsPaths.has(path),
-  // Re-export anything else the module needs
-  readFileSync: originalExistsSync,
+  existsSync: (path: string) => mockExistsPaths.has(path) || path === CONFIG_DEFAULTS_PATH,
+  readFileSync: (path: string, ...args: unknown[]) => {
+    if (path === CONFIG_DEFAULTS_PATH) return CONFIG_DEFAULTS_CONTENT;
+    return originalReadFileSync(path, ...(args as [never]));
+  },
 }));
 
 const WORKSPACE_ROOT = '/test/workspace';
 
 function guidePath(slug: string): string {
+  // Namespaced layout (Issue #16): guides live under .craft-agent/sources.
+  return resolve(WORKSPACE_ROOT, '.craft-agent', 'sources', slug, 'guide.md');
+}
+
+function legacyRootGuidePath(slug: string): string {
   return resolve(WORKSPACE_ROOT, 'sources', slug, 'guide.md');
 }
 
@@ -75,6 +93,17 @@ describe('PrerequisiteManager', () => {
     it('does not match Write tool', () => {
       const result = manager.checkPrerequisites('Write');
       expect(result.allowed).toBe(true);
+    });
+
+    it('ignores guides at the legacy root-level sources path (#16)', () => {
+      // Old root path only: the namespaced guide is missing → no prerequisite → allowed.
+      mockExistsPaths.add(legacyRootGuidePath('linear'));
+      expect(manager.checkPrerequisites('mcp__linear__createIssue').allowed).toBe(true);
+      // The namespaced guide exists → prerequisite active → blocked until read.
+      mockExistsPaths.add(guidePath('linear'));
+      const result = manager.checkPrerequisites('mcp__linear__createIssue');
+      expect(result.allowed).toBe(false);
+      expect(result.blockReason).toContain('guide.md');
     });
 
     it('exempts session MCP tools', () => {
