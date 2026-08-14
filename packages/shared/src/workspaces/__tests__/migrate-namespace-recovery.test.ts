@@ -142,6 +142,27 @@ describe('ensureWorkspaceNamespace (marker + recovery)', () => {
     expect(existsSync(join(ws, 'sessions'))).toBe(false);
   });
 
+  it('nsDir with agent-sessions (bindings) + legacy remnants → resume, not conflict', () => {
+    // New code created the bindings directory under the namespace; a partial
+    // migration left legacy items at the root — must resume, never conflict.
+    mkdirSync(nsDir(), { recursive: true });
+    mkdirSync(join(nsDir(), 'agent-sessions'), { recursive: true });
+    writeFileSync(join(nsDir(), 'agent-sessions', 'agent_abc.json'), '{}', 'utf-8');
+    writeFileSync(join(nsDir(), 'workspace.json'), '{"partial":true}', 'utf-8');
+    seedLegacy('sessions');
+    seedLegacy('sources');
+
+    ensureWorkspaceNamespace(ws);
+
+    // Migration resumed: legacy items moved, bindings dir untouched, marker written.
+    expect(existsSync(join(ws, 'sessions'))).toBe(false);
+    expect(readFileSync(join(nsDir(), 'sessions', 'data.txt'), 'utf-8')).toBe('legacy-sessions');
+    expect(existsSync(join(ws, 'sources'))).toBe(false);
+    expect(readFileSync(join(nsDir(), 'agent-sessions', 'agent_abc.json'), 'utf-8')).toBe('{}');
+    expect(existsSync(markerPath())).toBe(true);
+    expect(readMarker().items.sort()).toEqual(['sessions', 'sources']);
+  });
+
   it('unknown namespace content + legacy → explicit conflict, no marker, nothing touched', () => {
     seedLegacy('config.json');
     mkdirSync(nsDir(), { recursive: true });

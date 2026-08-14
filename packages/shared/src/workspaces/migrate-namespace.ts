@@ -155,6 +155,9 @@ export function ensureWorkspaceNamespace(rootPath: string): void {
       const allowed = new Set([
         ...MIGRATION_ITEMS.map((item) => item.to),
         ...CRITICAL_SUBDIRS,
+        // Bindings directory created by new code under the namespace (#4) —
+        // must not turn an interrupted migration into a false conflict.
+        'agent-sessions',
       ]);
       const unknown = nsContents.filter((entry) => !allowed.has(entry));
       if (unknown.length > 0) {
