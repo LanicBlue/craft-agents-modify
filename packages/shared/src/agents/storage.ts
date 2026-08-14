@@ -36,6 +36,7 @@ import { CONFIG_DIR } from '../config/paths.ts';
 import { atomicWriteFileSync, readJsonFileSync } from '../utils/files.ts';
 import { debug } from '../utils/debug.ts';
 import type { WorkspaceConfig } from '../workspaces/types.ts';
+import type { ThinkingLevel } from '../agent/thinking-levels.ts';
 import type {
   AgentRecord,
   AgentProfileRevision,
@@ -286,14 +287,29 @@ export function listRevisions(agentId: string): AgentProfileRevision[] {
 // ============================================================
 
 /**
+ * Global defaults layer for snapshot resolution (Wave 3 W3-2): values read
+ * from the user's global config (config.json / config-defaults.json) at
+ * materialization time by the caller (bindings.ensureAgentSession). Kept as
+ * an explicit parameter so resolveAgentSnapshot stays a pure function with
+ * deterministic tests.
+ */
+export interface SnapshotGlobalDefaults {
+  defaultLlmConnection?: string;
+  defaultThinkingLevel?: ThinkingLevel;
+}
+
+/**
  * Resolve the immutable AgentProfileSnapshot for a revision, applying the
- * inheritance chain ONCE at materialization time (Wave 2 R1a):
+ * inheritance chain ONCE at materialization time (Wave 2 R1a + W3-2):
  *
- *   revision value > workspace defaults > hardcoded globals
+ *   revision value > workspace defaults > global defaults > hardcoded
  *
- * - permissionMode / thinkingLevel always resolve (hardcoded fallbacks).
- * - model / llmConnection resolve from execution > workspace defaults, and
- *   stay ABSENT when nothing provides them (backend self-resolves).
+ * - permissionMode always resolves (hardcoded 'ask' fallback — no global
+ *   config item exists for it).
+ * - model / llmConnection resolve from execution > workspace defaults >
+ *   global default connection, and stay ABSENT when nothing provides them
+ *   (backend self-resolves).
+ * - thinkingLevel: revision > workspace > global > 'medium'.
  * - enabledSourceSlugs: `undefined` inherits workspace defaults; an explicit
  *   `[]` is preserved (explicitly none).
  * - systemPrompt is revision-only (required, never inherited).
@@ -302,13 +318,15 @@ export function listRevisions(agentId: string): AgentProfileRevision[] {
  */
 export function resolveAgentSnapshot(
   revision: AgentProfileRevision,
-  defaults?: WorkspaceConfig['defaults']
+  defaults?: WorkspaceConfig['defaults'],
+  globals?: SnapshotGlobalDefaults
 ): AgentProfileSnapshot {
   const snapshot: AgentProfileSnapshot = {
     execution: revision.execution,
     systemPrompt: revision.systemPrompt,
     permissionMode: revision.permissionMode ?? defaults?.permissionMode ?? 'ask',
-    thinkingLevel: revision.thinkingLevel ?? defaults?.thinkingLevel ?? 'medium',
+    thinkingLevel:
+      revision.thinkingLevel ?? defaults?.thinkingLevel ?? globals?.defaultThinkingLevel ?? 'medium',
     resolvedAt: Date.now(),
   };
 
@@ -319,8 +337,10 @@ export function resolveAgentSnapshot(
 
   const llmConnection =
     revision.execution.kind === 'craft-backend'
-      ? (revision.execution.llmConnection ?? defaults?.defaultLlmConnection)
-      : defaults?.defaultLlmConnection;
+      ? (revision.execution.llmConnection ??
+        defaults?.defaultLlmConnection ??
+        globals?.defaultLlmConnection)
+      : (defaults?.defaultLlmConnection ?? globals?.defaultLlmConnection);
   if (llmConnection !== undefined) {
     snapshot.llmConnection = llmConnection;
   }

@@ -115,6 +115,51 @@ describe('resolveAgentSnapshot', () => {
     expect(snapshot.enabledSourceSlugs).toEqual([]);
   });
 
+  it('resolves global defaults when revision and workspace omit fields (W3-2)', () => {
+    const snapshot = resolveAgentSnapshot(
+      makeRevision({
+        thinkingLevel: undefined,
+        permissionMode: undefined,
+        execution: { kind: 'craft-backend' },
+      }),
+      undefined,
+      { defaultLlmConnection: 'global-conn', defaultThinkingLevel: 'high' }
+    );
+
+    expect(snapshot.llmConnection).toBe('global-conn');
+    expect(snapshot.thinkingLevel).toBe('high');
+  });
+
+  it('precedence: revision > workspace > global (W3-2)', () => {
+    const snapshot = resolveAgentSnapshot(
+      makeRevision({ thinkingLevel: 'max', execution: { kind: 'craft-backend', llmConnection: 'rev-conn' } }),
+      { thinkingLevel: 'low', defaultLlmConnection: 'ws-conn' },
+      { defaultLlmConnection: 'global-conn', defaultThinkingLevel: 'high' }
+    );
+
+    expect(snapshot.thinkingLevel).toBe('max');
+    expect(snapshot.llmConnection).toBe('rev-conn');
+
+    const wsWins = resolveAgentSnapshot(
+      makeRevision({ thinkingLevel: undefined, execution: { kind: 'craft-backend' } }),
+      { thinkingLevel: 'low', defaultLlmConnection: 'ws-conn' },
+      { defaultLlmConnection: 'global-conn', defaultThinkingLevel: 'high' }
+    );
+    expect(wsWins.thinkingLevel).toBe('low');
+    expect(wsWins.llmConnection).toBe('ws-conn');
+  });
+
+  it('falls back to hardcoded defaults when no layer provides values (W3-2)', () => {
+    const snapshot = resolveAgentSnapshot(
+      makeRevision({ thinkingLevel: undefined, execution: { kind: 'craft-backend' } }),
+      undefined,
+      {}
+    );
+
+    expect(snapshot.thinkingLevel).toBe('medium');
+    expect('llmConnection' in snapshot).toBe(false);
+  });
+
   it('preserves external-harness execution config', () => {
     const snapshot = resolveAgentSnapshot(
       makeRevision({

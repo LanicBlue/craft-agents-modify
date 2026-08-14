@@ -34,7 +34,8 @@ import { dirname, join } from 'path';
 // initialization time (same pattern as workspaces/storage ↔ migrate-namespace).
 import { createSession, loadSession } from '../sessions/storage.ts';
 import { readSessionHeader } from '../sessions/jsonl.ts';
-import { getAgent, loadLatestRevision, resolveAgentSnapshot } from './storage.ts';
+import { getDefaultLlmConnection, getDefaultThinkingLevel } from '../config/index.ts';
+import { getAgent, loadLatestRevision, resolveAgentSnapshot, type SnapshotGlobalDefaults } from './storage.ts';
 import { WORKSPACE_NAMESPACE, getWorkspaceSessionsPath, loadWorkspaceConfig } from '../workspaces/storage.ts';
 import { atomicWriteFileSync, readJsonFileSync } from '../utils/files.ts';
 import { debug } from '../utils/debug.ts';
@@ -140,6 +141,27 @@ function loadBindingStrict(workspaceRootPath: string, agentId: string): BindingL
  * Load the binding for one agent. Returns null when missing or unreadable
  * (corrupt files are logged and treated as absent — diagnostic reads only).
  */
+/**
+ * Read the global defaults layer for snapshot resolution (W3-2).
+ *
+ * Tolerates a missing config infrastructure (e.g. bare test/CI environments
+ * without config-defaults.json — loadConfigDefaults throws): on failure the
+ * snapshot chain falls back to its hardcoded defaults.
+ */
+function loadGlobalAgentDefaults(): SnapshotGlobalDefaults {
+  try {
+    return {
+      defaultLlmConnection: getDefaultLlmConnection() ?? undefined,
+      defaultThinkingLevel: getDefaultThinkingLevel() ?? undefined,
+    };
+  } catch (err) {
+    debug(
+      `[bindings] global defaults unavailable, falling back to hardcoded: ${err instanceof Error ? err.message : String(err)}`
+    );
+    return {};
+  }
+}
+
 export function loadBinding(
   workspaceRootPath: string,
   agentId: string
@@ -468,10 +490,14 @@ export async function ensureAgentSession(
         `No revision available for agent: ${agentId}`
       );
     }
-    // Snapshot inheritance resolves workspace defaults once, at materialization
-    // (Wave 2 R1a).
+    // Snapshot inheritance resolves workspace + global defaults once, at
+    // materialization (Wave 2 R1a + W3-2).
     const workspaceConfig = loadWorkspaceConfig(workspaceRootPath);
-    const snapshot = resolveAgentSnapshot(revision, workspaceConfig?.defaults);
+    const snapshot = resolveAgentSnapshot(
+      revision,
+      workspaceConfig?.defaults,
+      loadGlobalAgentDefaults()
+    );
 
     const session = await createSession(workspaceRootPath, {
       agentId,
