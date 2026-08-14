@@ -42,7 +42,7 @@ describe('resolveAgentSnapshot', () => {
     expect(snapshot.enabledSourceSlugs).toEqual(['github', 'linear']);
   });
 
-  it('omits optional fields that are absent from the revision', () => {
+  it('resolves hardcoded defaults for fields absent from the revision', () => {
     const snapshot = resolveAgentSnapshot(
       makeRevision({
         thinkingLevel: undefined,
@@ -52,13 +52,67 @@ describe('resolveAgentSnapshot', () => {
       })
     );
 
-    expect('thinkingLevel' in snapshot).toBe(false);
-    expect('permissionMode' in snapshot).toBe(false);
+    // Resolution chain: revision > workspace defaults > hardcoded globals.
+    expect(snapshot.permissionMode).toBe('ask');
+    expect(snapshot.thinkingLevel).toBe('medium');
     expect('enabledSourceSlugs' in snapshot).toBe(false);
-    expect(snapshot.model).toBeUndefined();
+    expect('model' in snapshot).toBe(false);
+    expect('llmConnection' in snapshot).toBe(false);
+    expect(typeof snapshot.resolvedAt).toBe('number');
     // Required fields always present
     expect(snapshot.execution.kind).toBe('craft-backend');
     expect(snapshot.systemPrompt).toBe('You are a test agent.');
+  });
+
+  it('resolves workspace defaults when the revision omits fields (R1a)', () => {
+    const snapshot = resolveAgentSnapshot(
+      makeRevision({
+        thinkingLevel: undefined,
+        permissionMode: undefined,
+        enabledSourceSlugs: undefined,
+        execution: { kind: 'craft-backend' },
+      }),
+      {
+        permissionMode: 'allow-all',
+        thinkingLevel: 'high',
+        model: 'claude-3-7-sonnet',
+        defaultLlmConnection: 'workspace-conn',
+        enabledSourceSlugs: ['github'],
+      }
+    );
+
+    expect(snapshot.permissionMode).toBe('allow-all');
+    expect(snapshot.thinkingLevel).toBe('high');
+    expect(snapshot.model).toBe('claude-3-7-sonnet');
+    expect(snapshot.llmConnection).toBe('workspace-conn');
+    expect(snapshot.enabledSourceSlugs).toEqual(['github']);
+  });
+
+  it('revision values win over workspace defaults', () => {
+    const snapshot = resolveAgentSnapshot(
+      makeRevision(), // revision already has thinkingLevel 'max' / permissionMode 'ask' / sources
+      {
+        permissionMode: 'allow-all',
+        thinkingLevel: 'low',
+        model: 'claude-3-7-sonnet',
+        enabledSourceSlugs: ['linear'],
+      }
+    );
+
+    expect(snapshot.permissionMode).toBe('ask');
+    expect(snapshot.thinkingLevel).toBe('max');
+    expect(snapshot.enabledSourceSlugs).toEqual(['github', 'linear']);
+    // model: revision execution model wins over the workspace default.
+    expect(snapshot.model).toBe('claude-opus-4-8');
+  });
+
+  it('preserves explicit [] over workspace default sources (R1a)', () => {
+    const snapshot = resolveAgentSnapshot(
+      makeRevision({ enabledSourceSlugs: [] }),
+      { enabledSourceSlugs: ['github'] }
+    );
+
+    expect(snapshot.enabledSourceSlugs).toEqual([]);
   });
 
   it('preserves external-harness execution config', () => {

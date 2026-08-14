@@ -26,6 +26,7 @@ import { randomUUID } from 'crypto';
 import { CONFIG_DIR } from '../config/paths.ts';
 import { atomicWriteFileSync, readJsonFileSync } from '../utils/files.ts';
 import { debug } from '../utils/debug.ts';
+import type { WorkspaceConfig } from '../workspaces/types.ts';
 import type {
   AgentRecord,
   AgentProfileRevision,
@@ -220,26 +221,53 @@ export function listRevisions(agentId: string): AgentProfileRevision[] {
  * Resolve an immutable configuration snapshot from an AgentProfileRevision.
  * Used at session materialization time (Issue #4 ensureAgentSession).
  */
+/**
+ * Resolve the immutable AgentProfileSnapshot for a revision, applying the
+ * inheritance chain ONCE at materialization time (Wave 2 R1a):
+ *
+ *   revision value > workspace defaults > hardcoded globals
+ *
+ * - permissionMode / thinkingLevel always resolve (hardcoded fallbacks).
+ * - model / llmConnection resolve from execution > workspace defaults, and
+ *   stay ABSENT when nothing provides them (backend self-resolves).
+ * - enabledSourceSlugs: `undefined` inherits workspace defaults; an explicit
+ *   `[]` is preserved (explicitly none).
+ * - systemPrompt is revision-only (required, never inherited).
+ * - resolvedAt pins the moment of resolution: later defaults changes never
+ *   mutate existing snapshots.
+ */
 export function resolveAgentSnapshot(
-  revision: AgentProfileRevision
+  revision: AgentProfileRevision,
+  defaults?: WorkspaceConfig['defaults']
 ): AgentProfileSnapshot {
   const snapshot: AgentProfileSnapshot = {
     execution: revision.execution,
     systemPrompt: revision.systemPrompt,
+    permissionMode: revision.permissionMode ?? defaults?.permissionMode ?? 'ask',
+    thinkingLevel: revision.thinkingLevel ?? defaults?.thinkingLevel ?? 'medium',
+    resolvedAt: Date.now(),
   };
-  // Resolve model from execution config
-  if (revision.execution.model !== undefined) {
-    snapshot.model = revision.execution.model;
+
+  const model = revision.execution.model ?? defaults?.model;
+  if (model !== undefined) {
+    snapshot.model = model;
   }
-  if (revision.thinkingLevel !== undefined) {
-    snapshot.thinkingLevel = revision.thinkingLevel;
+
+  const llmConnection =
+    revision.execution.kind === 'craft-backend'
+      ? (revision.execution.llmConnection ?? defaults?.defaultLlmConnection)
+      : defaults?.defaultLlmConnection;
+  if (llmConnection !== undefined) {
+    snapshot.llmConnection = llmConnection;
   }
-  if (revision.permissionMode !== undefined) {
-    snapshot.permissionMode = revision.permissionMode;
-  }
+
+  // Explicit [] is preserved (explicitly none); undefined inherits.
   if (revision.enabledSourceSlugs !== undefined) {
     snapshot.enabledSourceSlugs = revision.enabledSourceSlugs;
+  } else if (defaults?.enabledSourceSlugs !== undefined) {
+    snapshot.enabledSourceSlugs = defaults.enabledSourceSlugs;
   }
+
   return snapshot;
 }
 

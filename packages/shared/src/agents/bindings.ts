@@ -35,7 +35,7 @@ import { dirname, join } from 'path';
 import { createSession, loadSession } from '../sessions/storage.ts';
 import { readSessionHeader } from '../sessions/jsonl.ts';
 import { getAgent, loadLatestRevision, resolveAgentSnapshot } from './storage.ts';
-import { WORKSPACE_NAMESPACE, getWorkspaceSessionsPath } from '../workspaces/storage.ts';
+import { WORKSPACE_NAMESPACE, getWorkspaceSessionsPath, loadWorkspaceConfig } from '../workspaces/storage.ts';
 import { atomicWriteFileSync, readJsonFileSync } from '../utils/files.ts';
 import { debug } from '../utils/debug.ts';
 import type { SessionConfig } from '../sessions/types.ts';
@@ -468,7 +468,10 @@ export async function ensureAgentSession(
         `No revision available for agent: ${agentId}`
       );
     }
-    const snapshot = resolveAgentSnapshot(revision);
+    // Snapshot inheritance resolves workspace defaults once, at materialization
+    // (Wave 2 R1a).
+    const workspaceConfig = loadWorkspaceConfig(workspaceRootPath);
+    const snapshot = resolveAgentSnapshot(revision, workspaceConfig?.defaults);
 
     const session = await createSession(workspaceRootPath, {
       agentId,
@@ -479,6 +482,7 @@ export async function ensureAgentSession(
       thinkingLevel: snapshot.thinkingLevel,
       enabledSourceSlugs: snapshot.enabledSourceSlugs,
       model: snapshot.model,
+      llmConnection: snapshot.llmConnection,
     });
 
     // Step 7: atomically publish 'bound' → canonicalSessionId, generation N+1.

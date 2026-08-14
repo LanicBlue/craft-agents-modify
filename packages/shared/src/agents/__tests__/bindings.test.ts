@@ -255,6 +255,82 @@ describe('bindings storage resilience', () => {
   });
 });
 
+describe('snapshot inheritance at materialization (Wave 2 R1a)', () => {
+  function seedWorkspaceDefaults(defaults: Record<string, unknown>) {
+    mkdirSync(join(ws, '.craft-agent'), { recursive: true });
+    writeFileSync(
+      join(ws, '.craft-agent', 'workspace.json'),
+      JSON.stringify({ id: 'ws-1', name: 'WS', slug: 'ws', defaults }),
+      'utf-8'
+    );
+  }
+
+  it('materializes workspace defaults when the agent omits fields; resolvedAt is set', async () => {
+    seedWorkspaceDefaults({
+      permissionMode: 'allow-all',
+      thinkingLevel: 'high',
+      defaultLlmConnection: 'workspace-conn',
+      model: 'claude-3-7-sonnet',
+      enabledSourceSlugs: ['github'],
+    });
+    const agent = createAgent({
+      name: 'Inherit Agent',
+      execution: { kind: 'craft-backend' },
+      systemPrompt: 'Inherit me.',
+    });
+
+    const session = await ensureAgentSession(ws, 'ws-1', agent.id);
+
+    expect(session.permissionMode).toBe('allow-all');
+    expect(session.thinkingLevel).toBe('high');
+    expect(session.model).toBe('claude-3-7-sonnet');
+    expect(session.llmConnection).toBe('workspace-conn');
+    expect(session.enabledSourceSlugs).toEqual(['github']);
+    const snapshot = session.agentProfileSnapshot!;
+    expect(snapshot.permissionMode).toBe('allow-all');
+    expect(snapshot.thinkingLevel).toBe('high');
+    expect(typeof snapshot.resolvedAt).toBe('number');
+  });
+
+  it('explicit [] sources are never overridden by workspace defaults', async () => {
+    seedWorkspaceDefaults({ enabledSourceSlugs: ['github'] });
+    const agent = createAgent({
+      name: 'Empty Sources Agent',
+      execution: { kind: 'craft-backend', llmConnection: 'anthropic', model: 'claude-opus-4-8' },
+      systemPrompt: 'No sources.',
+      enabledSourceSlugs: [],
+    });
+
+    const session = await ensureAgentSession(ws, 'ws-1', agent.id);
+
+    expect(session.enabledSourceSlugs).toEqual([]);
+  });
+
+  it('inheritance happens exactly once: later defaults changes never mutate the live session', async () => {
+    seedWorkspaceDefaults({ permissionMode: 'allow-all' });
+    const agent = createAgent({
+      name: 'Once Agent',
+      execution: { kind: 'craft-backend' },
+      systemPrompt: 'Once.',
+    });
+    const first = await ensureAgentSession(ws, 'ws-1', agent.id);
+    expect(first.permissionMode).toBe('allow-all');
+
+    // Workspace defaults change after materialization.
+    seedWorkspaceDefaults({ permissionMode: 'safe' });
+    const reused = await ensureAgentSession(ws, 'ws-1', agent.id);
+    expect(reused.id).toBe(first.id);
+    expect(reused.permissionMode).toBe('allow-all');
+    expect(reused.agentProfileSnapshot!.permissionMode).toBe('allow-all');
+
+    // After the session is deleted, a NEW materialization uses the new defaults.
+    deleteSession(ws, first.id);
+    const second = await ensureAgentSession(ws, 'ws-1', agent.id);
+    expect(second.id).not.toBe(first.id);
+    expect(second.permissionMode).toBe('safe');
+  });
+});
+
 describe('corrupt binding → explicit conflict (Wave 1 R3)', () => {
   it('never materializes a replacement session; backs up the corrupt file; conflict records candidates', async () => {
     const agent = createTestAgent();

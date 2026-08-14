@@ -80,6 +80,10 @@ export interface AgentProfileSnapshot {
   permissionMode?: PermissionMode;
   systemPrompt: string;
   enabledSourceSlugs?: string[];
+  /** Connection resolved at materialization (revision > workspace defaults). */
+  llmConnection?: string;
+  /** Epoch ms at materialization — inheritance is baked in exactly once. */
+  resolvedAt: number;
 }
 
 /**

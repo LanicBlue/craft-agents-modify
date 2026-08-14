@@ -25,6 +25,7 @@ const snapshot: AgentProfileSnapshot = {
   permissionMode: 'ask',
   systemPrompt: 'You are a test agent.',
   enabledSourceSlugs: ['github'],
+  resolvedAt: 1,
 };
 
 beforeEach(() => {
