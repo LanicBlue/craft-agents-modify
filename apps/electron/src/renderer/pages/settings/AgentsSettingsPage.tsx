@@ -12,15 +12,18 @@
 
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
-import { Bot, Loader2 } from 'lucide-react'
+import { Bot, Loader2, Plus } from 'lucide-react'
 import { formatDistanceToNowStrict, type Locale } from 'date-fns'
 import { PanelHeader } from '@/components/app-shell/PanelHeader'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { EntityRow } from '@/components/ui/entity-row'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { SettingsSection, SettingsCard } from '@/components/settings'
+import { AgentEditorDialog } from '@/components/settings/AgentEditorDialog'
 import { useAgents } from '@/hooks/useAgents'
 import { shortTimeLocale } from '@/utils/session'
+import type { AgentRecord } from '@craft-agent/shared/agents'
 import type { DetailsPageMeta } from '@/lib/navigation-registry'
 
 export const meta: DetailsPageMeta = {
@@ -30,11 +33,41 @@ export const meta: DetailsPageMeta = {
 
 export default function AgentsSettingsPage() {
   const { t } = useTranslation()
-  const { agents, isLoading, error } = useAgents({ includeRetired: true })
+  const { agents, isLoading, error, refresh, create, update, getLatestRevision } = useAgents({
+    includeRetired: true,
+  })
+  const [showCreate, setShowCreate] = React.useState(false)
+  const [editingAgent, setEditingAgent] = React.useState<AgentRecord | null>(null)
+
+  const handleSaved = React.useCallback(() => {
+    setShowCreate(false)
+    setEditingAgent(null)
+    refresh()
+  }, [refresh])
 
   return (
     <div className="h-full flex flex-col">
-      <PanelHeader title={t('settings.agents.title')} />
+      <PanelHeader
+        title={t('settings.agents.title')}
+        actions={
+          <Button size="sm" onClick={() => setShowCreate(true)}>
+            <Plus className="w-4 h-4 mr-1" />
+            {t('settings.agents.new')}
+          </Button>
+        }
+      />
+      <AgentEditorDialog
+        open={showCreate || editingAgent !== null}
+        agent={editingAgent}
+        onCancel={() => {
+          setShowCreate(false)
+          setEditingAgent(null)
+        }}
+        onSaved={handleSaved}
+        create={create}
+        update={update}
+        getLatestRevision={getLatestRevision}
+      />
       <div className="flex-1 min-h-0 mask-fade-y">
         <ScrollArea className="h-full">
           <div className="px-5 py-7 max-w-3xl mx-auto">
@@ -96,6 +129,7 @@ export default function AgentsSettingsPage() {
                             </span>
                           }
                           showSeparator={index > 0}
+                          onClick={() => setEditingAgent(agent)}
                         />
                       ))}
                     </div>

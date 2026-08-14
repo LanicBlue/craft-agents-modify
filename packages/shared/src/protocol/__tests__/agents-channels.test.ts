@@ -14,6 +14,7 @@ const EXPECTED_WIRE_STRINGS = {
   'agents:update': 'agents:update',
   'agents:retire': 'agents:retire',
   'agents:restore': 'agents:restore',
+  'agents:getLatestRevision': 'agents:getLatestRevision',
   'agentSessions:list': 'agentSessions:list',
   'agentSessions:ensure': 'agentSessions:ensure',
   'agentSessions:dispatch': 'agentSessions:dispatch',
@@ -24,18 +25,18 @@ const EXPECTED_WIRE_STRINGS = {
 const agentChannelValues = [...Object.values(RPC_CHANNELS.agents), ...Object.values(RPC_CHANNELS.agentSessions)]
 
 describe('Issue #5 agent channels', () => {
-  test('all 11 new channels exist in getAllChannelValues()', () => {
+  test('all 12 new channels exist in getAllChannelValues()', () => {
     const all = getAllChannelValues()
     for (const wire of Object.values(EXPECTED_WIRE_STRINGS)) {
       expect(all).toContain(wire)
     }
   })
 
-  test('channel wire strings match the Issue #5 spec', () => {
-    expect(agentChannelValues).toHaveLength(11)
+  test('channel wire strings match the Issue #5/#15 spec', () => {
+    expect(agentChannelValues).toHaveLength(12)
     const wireSet = new Set(agentChannelValues)
     // Every spec'd wire string must appear exactly once across the two namespaces
-    expect(wireSet.size).toBe(11)
+    expect(wireSet.size).toBe(12)
     for (const wire of Object.values(EXPECTED_WIRE_STRINGS)) {
       expect(wireSet.has(wire)).toBe(true)
     }

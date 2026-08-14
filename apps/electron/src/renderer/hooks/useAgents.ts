@@ -8,7 +8,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react'
-import type { AgentRecord, CreateAgentInput, UpdateAgentInput } from '@craft-agent/shared/agents'
+import type { AgentRecord, AgentProfileRevision, CreateAgentInput, UpdateAgentInput } from '@craft-agent/shared/agents'
 
 export interface UseAgentsResult {
   /** Agent records (retired excluded unless includeRetired is set) */
@@ -20,6 +20,7 @@ export interface UseAgentsResult {
   update: (agentId: string, input: UpdateAgentInput) => Promise<AgentRecord>
   retire: (agentId: string) => Promise<void>
   restore: (agentId: string) => Promise<void>
+  getLatestRevision: (agentId: string) => Promise<AgentProfileRevision>
 }
 
 /**
@@ -71,5 +72,9 @@ export function useAgents(options?: { includeRetired?: boolean }): UseAgentsResu
     await refresh()
   }, [refresh])
 
-  return { agents, isLoading, error, refresh, create, update, retire, restore }
+  const getLatestRevision = useCallback((agentId: string) => {
+    return window.electronAPI.getLatestAgentRevision(agentId)
+  }, [])
+
+  return { agents, isLoading, error, refresh, create, update, retire, restore, getLatestRevision }
 }

@@ -19,6 +19,7 @@ import {
   updateAgent,
   retireAgent,
   restoreAgent,
+  loadLatestRevision,
   listBindings,
   ensureAgentSession,
   resolveBinding,
@@ -69,6 +70,12 @@ export function registerAgentsHandlers(server: RpcServer, deps: HandlerDeps): vo
 
   server.handle(RPC_CHANNELS.agents.RESTORE, async (_ctx, agentId: string) => {
     return restoreAgent(agentId)
+  })
+
+  server.handle(RPC_CHANNELS.agents.GET_LATEST_REVISION, async (_ctx, agentId: string) => {
+    const revision = loadLatestRevision(agentId)
+    if (!revision) throw new Error(`No revision found for agent: ${agentId}`)
+    return revision
   })
 
   // ------------------------------------------------------------------
