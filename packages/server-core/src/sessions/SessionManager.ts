@@ -16,10 +16,12 @@ import {
   createBackendFromResolvedContext,
   cleanupSourceRuntimeArtifacts,
   providerTypeToAgentProvider,
+  getHarnessDriver,
   type AgentBackend,
   type BackendHostRuntimeContext,
   type PostInitResult,
 } from '@craft-agent/shared/agent/backend'
+import { createExternalHarnessBackend } from '@craft-agent/shared/agent/backend/harness/external-harness-backend'
 import { getLlmConnection, getLlmConnections, getDefaultLlmConnection, getDefaultThinkingLevel, resetManagedAnthropicAuthEnvVars, resolveMidStreamBehavior, getPersistedUiLanguage, resolveTitleLanguageName } from '@craft-agent/shared/config'
 import type { MidStreamBehavior } from '@craft-agent/shared/config'
 import { PrivilegedExecutionBroker } from '@craft-agent/server-core/services'
@@ -40,7 +42,7 @@ import {
 } from '@craft-agent/shared/config'
 import type { ActiveSessionInfo, SessionProcessingStatus } from '@craft-agent/core/types'
 import { loadWorkspaceConfig } from '@craft-agent/shared/workspaces'
-import { assertSupportedExecutionKind } from '@craft-agent/shared/agents'
+import { loadLatestRevision } from '@craft-agent/shared/agents'
 import {
   // Session persistence functions
   listSessions as listStoredSessions,
@@ -3331,9 +3333,80 @@ export class SessionManager implements ISessionManager {
    * 4. fallback: no connection configured
    */
   private async getOrCreateAgent(managed: ManagedSession): Promise<AgentInstance> {
-    // Execution seam (#8): reject unsupported external-harness execution kinds
-    // before attempting backend creation. No-op for craft-backend / non-agent sessions.
-    assertSupportedExecutionKind(managed.agentId)
+    // --- External-harness dispatch (Issue #9 Step 3) ---
+    // Agent sessions with external-harness execution bypass the provider-based
+    // factory (resolveBackendContext / createBackendFromResolvedContext are
+    // craft-backend only) and run through a registered harness driver.
+    // Non-agent sessions and craft-backend agents fall through unchanged.
+    if (managed.agentId) {
+      const revision = loadLatestRevision(managed.agentId)
+      if (revision?.execution.kind === 'external-harness') {
+        // Refresh case: an agent already exists for this session
+        if (managed.agent) return managed.agent
+
+        const harness = revision.execution.harness
+        const driver = getHarnessDriver(harness)
+        if (!driver) {
+          throw new Error(
+            `No driver registered for harness '${harness}'. See Issue #10.`
+          )
+        }
+
+        // Session config (same fields as the craft-backend path below)
+        const sessionConfig = {
+          id: managed.id,
+          workspaceRootPath: managed.workspace.rootPath,
+          sdkSessionId: managed.sdkSessionId,
+          createdAt: managed.lastMessageAt,
+          lastUsedAt: managed.lastMessageAt,
+          workingDirectory: managed.workingDirectory,
+          sdkCwd: managed.sdkCwd,
+          model: managed.model ?? revision.execution.model,
+          permissionMode: managed.permissionMode,
+          agentId: managed.agentId,
+        }
+
+        const onSdkSessionIdUpdate = (sdkSessionId: string) => {
+          managed.sdkSessionId = sdkSessionId
+          sessionLog.info(`SDK session ID captured for ${managed.id}: ${sdkSessionId}`)
+          this.persistSession(managed)
+          sessionPersistenceQueue.flush(managed.id)
+        }
+
+        // Signal that the agent instance is ready (unblocks title generation)
+        managed.agentReady = new Promise<void>(r => { managed.agentReadyResolve = r })
+
+        managed.agent = createExternalHarnessBackend({
+          workspace: managed.workspace,
+          session: sessionConfig,
+          // Unused by external-harness backends but required by BackendConfig
+          provider: 'anthropic',
+          model: managed.model ?? revision.execution.model,
+          thinkingLevel: managed.thinkingLevel,
+          harness,
+          configMode: revision.execution.configMode,
+          systemPrompt: revision.systemPrompt,
+          driver,
+          onSdkSessionIdUpdate,
+          isHeadless: !AGENT_FLAGS.defaultModesEnabled,
+          skipConfigWatcher: true, // Server owns workspace-level ConfigWatcher — don't duplicate in agents
+        })
+
+        // Post-creation wiring (same callbacks as the existing path)
+        managed.agent.onDebug = (msg: string) => {
+          sessionLog.debug(`[harness:${harness}] ${msg}`)
+        }
+        managed.agent.onBackendAuthRequired = (reason: string) => {
+          sessionLog.warn(`Backend auth required for session ${managed.id}: ${reason}`)
+        }
+
+        managed.agentReadyResolve?.()
+        await managed.agent.postInit()
+
+        sessionLog.info(`Created ExternalHarnessBackend (${harness}) for session ${managed.id}`)
+        return managed.agent
+      }
+    }
 
     // Refresh runtime config in-place when the connection has drifted since
     // the agent was created. May null out `managed.agent` if the in-place

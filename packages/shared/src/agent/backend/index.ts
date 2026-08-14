@@ -87,6 +87,8 @@ export { EventQueue } from './event-queue.ts';
 // Provider-specific event adapters
 export { ClaudeEventAdapter } from './claude/event-adapter.ts';
 export { PiEventAdapter } from './pi/event-adapter.ts';
+export * from './harness/types.ts';
+export * from './harness/registry.ts';
 
 // Agent implementations are imported directly by factory.ts
 // Consumers should use createAgent() / createBackend() instead of concrete classes
