@@ -30,15 +30,17 @@ import {
 } from '@craft-agent/shared/agents'
 import { loadSession } from '@craft-agent/shared/sessions'
 import type { RpcServer } from '@craft-agent/server-core/transport'
+import { CodedError } from '@craft-agent/shared/protocol'
 import type { HandlerDeps } from '../handler-deps'
 
 /**
- * Convert AgentSessionBindingError into a structured RPC error:
- * the 5 binding error codes must reach RPC callers unchanged.
+ * Convert AgentSessionBindingError into a structured RPC error: the 5 binding
+ * error codes reach RPC callers as `err.code` (transport preserves ErrorCode
+ * through the wire), message stays human-readable.
  */
 function bindingErrorToRpc(e: unknown): Error {
   if (e instanceof AgentSessionBindingError) {
-    return new Error(JSON.stringify({ code: e.code, message: e.message }))
+    return new CodedError(e.code, e.message)
   }
   return e instanceof Error ? e : new Error(String(e))
 }

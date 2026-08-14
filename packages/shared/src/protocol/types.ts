@@ -91,6 +91,13 @@ export type ErrorCode =
   | 'BROWSER_INSTANCE_NOT_OWNED'
   | 'BROWSER_REMOTE_UPLOAD_NOT_SUPPORTED'
   | 'BROWSER_REMOTE_EVALUATE_BLOCKED'
+  // Agent sessions (Issue #5) — AgentSessionBindingError codes surface over
+  // RPC as structured codes so callers can branch on err.code.
+  | 'AGENT_NOT_FOUND'
+  | 'AGENT_RETIRED'
+  | 'AGENT_BINDING_CONFLICT'
+  | 'AGENT_SESSION_UNAVAILABLE'
+  | 'AGENT_EXECUTION_UNAVAILABLE'
 
 const KNOWN_ERROR_CODES: ReadonlySet<string> = new Set<ErrorCode>([
   'HANDLER_ERROR',
@@ -111,6 +118,11 @@ const KNOWN_ERROR_CODES: ReadonlySet<string> = new Set<ErrorCode>([
   'BROWSER_INSTANCE_NOT_OWNED',
   'BROWSER_REMOTE_UPLOAD_NOT_SUPPORTED',
   'BROWSER_REMOTE_EVALUATE_BLOCKED',
+  'AGENT_NOT_FOUND',
+  'AGENT_RETIRED',
+  'AGENT_BINDING_CONFLICT',
+  'AGENT_SESSION_UNAVAILABLE',
+  'AGENT_EXECUTION_UNAVAILABLE',
 ])
 
 export function isErrorCode(value: unknown): value is ErrorCode {
