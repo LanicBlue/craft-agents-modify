@@ -573,6 +573,30 @@ export async function updateSessionMetadata(
     | 'agentId'
   >>
 ): Promise<void> {
+  // Prefer patching the pending queue snapshot: it may contain messages that
+  // are not on disk yet. Replacing it via saveSession() would lose them.
+  const patched = sessionPersistenceQueue.patchPending(sessionId, (pending) => {
+    if (updates.isFlagged !== undefined) pending.isFlagged = updates.isFlagged;
+    if (updates.name !== undefined) pending.name = updates.name;
+    if (updates.sessionStatus !== undefined) pending.sessionStatus = updates.sessionStatus;
+    if (updates.labels !== undefined) pending.labels = updates.labels;
+    if (updates.enabledSourceSlugs !== undefined) pending.enabledSourceSlugs = updates.enabledSourceSlugs;
+    if (updates.workingDirectory !== undefined) pending.workingDirectory = updates.workingDirectory;
+    if (updates.sdkCwd !== undefined) pending.sdkCwd = updates.sdkCwd;
+    if (updates.permissionMode !== undefined) pending.permissionMode = updates.permissionMode;
+    if ('lastReadMessageId' in updates) pending.lastReadMessageId = updates.lastReadMessageId;
+    if ('hasUnread' in updates) pending.hasUnread = updates.hasUnread;
+    if ('sharedUrl' in updates) pending.sharedUrl = updates.sharedUrl;
+    if ('sharedId' in updates) pending.sharedId = updates.sharedId;
+    if (updates.model !== undefined) pending.model = updates.model;
+    if (updates.llmConnection !== undefined) pending.llmConnection = updates.llmConnection;
+    if (updates.isArchived !== undefined) pending.isArchived = updates.isArchived;
+    if ('archivedAt' in updates) pending.archivedAt = updates.archivedAt;
+    if (updates.projectId !== undefined) pending.projectId = updates.projectId;
+    if (updates.agentId !== undefined) pending.agentId = updates.agentId;
+  });
+  if (patched) return;
+
   const session = loadSession(workspaceRootPath, sessionId);
   if (!session) return;
 
@@ -758,8 +782,16 @@ export async function clearPendingPlanExecution(
   workspaceRootPath: string,
   sessionId: string
 ): Promise<void> {
+  // Prefer patching the pending snapshot (see updateSessionMetadata). Also
+  // guard against a pointless stale write-back when no plan state exists on
+  // disk — this runs on every user message as a safety valve.
+  const patched = sessionPersistenceQueue.patchPending(sessionId, (pending) => {
+    delete pending.pendingPlanExecution;
+  });
+  if (patched) return;
+
   const session = loadSession(workspaceRootPath, sessionId);
-  if (!session) return;
+  if (!session?.pendingPlanExecution) return;
 
   delete session.pendingPlanExecution;
   await saveSession(session);

@@ -77,7 +77,11 @@ class SessionPersistenceQueue {
     }
 
     const timer = setTimeout(() => {
-      void this.write(session.id)
+      // Route through the serialized writer — a fire-and-forget `write()` here
+      // races any concurrent flush() on the shared `.tmp` file (untracked write
+      // + tracked write can interleave writeFile/unlink/rename, losing the
+      // rename with ENOENT and the losing write's data with it).
+      void this.serializedWrite(session.id)
     }, this.debounceMs)
 
     this.pending.set(session.id, { data: session, timer })
@@ -174,23 +178,60 @@ class SessionPersistenceQueue {
     const entry = this.pending.get(sessionId)
     if (entry) {
       clearTimeout(entry.timer)
-
-      // Wait for any in-progress write to complete first
-      const inProgress = this.writeInProgress.get(sessionId)
-      if (inProgress) {
-        await inProgress
-      }
-
-      // Start new write and track it
-      const writePromise = this.write(sessionId)
-      this.writeInProgress.set(sessionId, writePromise)
-
-      try {
-        await writePromise
-      } finally {
-        this.writeInProgress.delete(sessionId)
-      }
+      await this.serializedWrite(sessionId)
     }
+  }
+
+  /**
+   * Serialize a write against any in-progress write for the same session.
+   * Both the debounce timer and flush() route through here so that only one
+   * write per session can ever be executing at a time.
+   */
+  private async serializedWrite(sessionId: string): Promise<void> {
+    // Wait for any in-progress write to complete first
+    const inProgress = this.writeInProgress.get(sessionId)
+    if (inProgress) {
+      await inProgress
+    }
+
+    // The in-progress write may have consumed the pending entry
+    if (!this.pending.has(sessionId)) return
+
+    // Start new write and track it
+    const writePromise = this.write(sessionId)
+    this.writeInProgress.set(sessionId, writePromise)
+
+    try {
+      await writePromise
+    } finally {
+      this.writeInProgress.delete(sessionId)
+    }
+  }
+
+  /**
+   * Patch the pending snapshot for a session in place, if one exists.
+   *
+   * Disk read-modify-write helpers (updateSessionMetadata, plan-execution
+   * state) MUST route header-only mutations through here when a write is
+   * pending: calling saveSession() instead would replace the pending
+   * snapshot (which may contain messages not yet on disk) with a STALE
+   * disk snapshot, silently losing those messages. Fast-completing turns
+   * (mini agents, harness backends) hit this window reliably.
+   *
+   * @returns true when a pending entry was patched (caller must NOT
+   *          saveSession afterwards); false when no write is pending
+   *          (caller falls back to its disk path).
+   */
+  patchPending(sessionId: string, mutator: (session: StoredSession) => void): boolean {
+    const entry = this.pending.get(sessionId)
+    if (!entry) return false
+    try {
+      mutator(entry.data)
+    } catch (error) {
+      debug(`[PersistenceQueue] patchPending mutator threw for ${sessionId}:`, error)
+      return false
+    }
+    return true
   }
 
   /**
