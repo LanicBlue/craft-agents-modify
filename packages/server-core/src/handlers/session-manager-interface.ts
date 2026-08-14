@@ -25,6 +25,9 @@ import type {
 } from '@craft-agent/shared/protocol'
 import type { SessionBundle, DispatchMode } from '@craft-agent/shared/sessions'
 import type { EventSink } from '../transport'
+// Type-only import — erased at runtime; the handlers barrel and SessionManager
+// already reference each other type-safely, no runtime cycle.
+import type { ManagedSession } from '../sessions/SessionManager'
 
 export interface ISessionManager {
   // ---------------------------------------------------------------------------
@@ -43,6 +46,8 @@ export interface ISessionManager {
 
   getSessions(workspaceId?: string): Session[]
   getSession(sessionId: string): Promise<Session | null>
+  /** Adopt an already-persisted on-disk session into the in-memory map (Issue #5). Idempotent. */
+  adoptPersistedSession(workspace: Workspace, sessionId: string): ManagedSession | null
   /** Creates a session and (unless `internal.emitCreatedEvent === false`) announces it to the
    *  renderer so it hydrates full metadata instead of fabricating a "New Chat" placeholder. */
   createSession(

@@ -799,7 +799,7 @@ interface RunningBackgroundTask {
   agentsCompleted?: number
 }
 
-interface ManagedSession {
+export interface ManagedSession {
   id: string
   workspace: Workspace
   agent: AgentInstance | null  // Lazy-loaded - null until first message
@@ -2028,6 +2028,38 @@ export class SessionManager implements ISessionManager {
     } catch (error) {
       sessionLog.error('Failed to load sessions from disk:', error)
     }
+  }
+
+  /**
+   * Adopt an already-persisted on-disk session into the in-memory map
+   * (Issue #5 — lets SessionManager consume sessions materialized by
+   * ensureAgentSession without a full reload/restart).
+   * Idempotent: returns the existing managed session when already loaded.
+   * Returns null when the session does not exist on disk.
+   */
+  adoptPersistedSession(workspace: Workspace, sessionId: string): ManagedSession | null {
+    const existing = this.sessions.get(sessionId)
+    if (existing) return existing
+
+    const stored = loadStoredSession(workspace.rootPath, sessionId)
+    if (!stored) return null
+
+    // Metadata only — messages lazy-loaded on demand (same as loadSessionsFromDisk).
+    // Messages/tokenUsage are runtime collections with different shapes; the
+    // remaining persistent fields flow through createManagedSession untouched.
+    const { messages: _messages, tokenUsage: _tokenUsage, ...metadata } = stored
+    const managed = createManagedSession(metadata, workspace, {
+      messagesLoaded: false,
+    })
+
+    // Same permission-mode hydration as the startup restore path.
+    setPermissionMode(managed.id, managed.permissionMode ?? 'ask', { changedBy: 'restore' })
+    if (managed.previousPermissionMode) {
+      hydratePreviousPermissionMode(managed.id, managed.previousPermissionMode)
+    }
+
+    this.sessions.set(sessionId, managed)
+    return managed
   }
 
   // Suppress fs.watch metadata-revert events for the window in which our own
