@@ -183,7 +183,7 @@ export class ExternalHarnessBackend extends BaseAgent {
 
   /**
    * Read back a stored permission response (consumed by the driver via the
-   * backend bridge in Issue #10). Undefined when no response was recorded.
+   * backend permission bridge). Undefined when no response was recorded.
    */
   getPermissionResponse(
     requestId: string

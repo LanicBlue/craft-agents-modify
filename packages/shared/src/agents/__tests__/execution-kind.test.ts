@@ -57,7 +57,7 @@ describe('assertSupportedExecutionKind', () => {
       systemPrompt: 'You are a codex agent.',
     });
     expect(() => assertSupportedExecutionKind(agent.id)).toThrow(/codex/);
-    expect(() => assertSupportedExecutionKind(agent.id)).toThrow(/Issue #9/);
+    expect(() => assertSupportedExecutionKind(agent.id)).toThrow(/Issue #17/);
   });
 
   it('throws for external-harness claude', () => {
@@ -68,7 +68,7 @@ describe('assertSupportedExecutionKind', () => {
       systemPrompt: 'You are a claude-harness agent.',
     });
     expect(() => assertSupportedExecutionKind(agent.id)).toThrow(/claude/);
-    expect(() => assertSupportedExecutionKind(agent.id)).toThrow(/Issue #9/);
+    expect(() => assertSupportedExecutionKind(agent.id)).toThrow(/Issue #17/);
   });
 
   it('throws for external-harness kimi', () => {
@@ -79,6 +79,6 @@ describe('assertSupportedExecutionKind', () => {
       systemPrompt: 'You are a kimi agent.',
     });
     expect(() => assertSupportedExecutionKind(agent.id)).toThrow(/kimi/);
-    expect(() => assertSupportedExecutionKind(agent.id)).toThrow(/Issue #9/);
+    expect(() => assertSupportedExecutionKind(agent.id)).toThrow(/Issue #17/);
   });
 });

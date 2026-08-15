@@ -402,7 +402,9 @@ app.whenReady().then(async () => {
     },
   })
 
-  // Register built-in harness drivers (Codex, etc.) — must run before any agent sessions.
+  // Register built-in harness drivers (Codex, Claude SDK) — must run before
+  // any agent sessions. NOTE: bootstrapServer (invoked below) also registers
+  // them; this early call covers the window before bootstrap resolves.
   registerBuiltinHarnessDrivers()
 
   // Register PowerShell validator root so it can find the bundled parser script

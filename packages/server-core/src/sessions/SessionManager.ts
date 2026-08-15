@@ -3392,7 +3392,7 @@ export class SessionManager implements ISessionManager {
         const driver = getHarnessDriver(harness)
         if (!driver) {
           throw new Error(
-            `No driver registered for harness '${harness}'. See Issue #10.`
+            `No driver registered for harness '${harness}'. See Issue #17 (codex/claude implemented).`
           )
         }
 

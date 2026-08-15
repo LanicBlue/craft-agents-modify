@@ -2,9 +2,9 @@
  * Execution Kind Guard (Issue #8)
  *
  * Creates the execution seam described in ADR #14 Decision 8.
- * Recognizes external-harness execution kind and rejects it with a
- * clear error until the ExternalHarnessBackend (Issue #9) and harness
- * drivers (Issue #10) are implemented.
+ * Rejects external-harness execution on paths that predate harness dispatch
+ * (defensive guard — the runtime dispatch path handles codex/claude via
+ * ExternalHarnessBackend, Issue #17; kimi drivers are pending).
  *
  * For craft-backend or non-agent sessions: no-op (existing flows unchanged).
  */
@@ -28,8 +28,8 @@ export function assertSupportedExecutionKind(agentId?: string): void {
   if (revision.execution.kind === 'external-harness') {
     const harness = revision.execution.harness
     throw new Error(
-      `External harness execution ('${harness}') is not yet implemented. ` +
-        `See Issue #9 (ExternalHarnessBackend) and #10 (harness drivers).`
+      `External harness execution ('${harness}') is not supported on this path. ` +
+        `Harness drivers: codex/claude implemented (Issue #17); kimi pending.`
     )
   }
 }

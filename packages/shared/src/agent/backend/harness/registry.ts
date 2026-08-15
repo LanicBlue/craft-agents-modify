@@ -1,9 +1,9 @@
 /**
  * Harness Driver Registry (Issue #9)
  *
- * Maps HarnessType → HarnessDriver. Drivers register themselves at module
- * load (Issue #10 will register the Codex driver). SessionManager consults
- * this registry when dispatching external-harness sessions.
+ * Maps HarnessType → HarnessDriver. Drivers register themselves at startup
+ * (registerBuiltinHarnessDrivers: codex + claude, Issue #17). SessionManager
+ * consults this registry when dispatching external-harness sessions.
  */
 
 import type { HarnessDriver, HarnessType } from './types.ts';

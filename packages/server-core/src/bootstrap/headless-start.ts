@@ -4,6 +4,7 @@ import { uptime as osUptime } from 'node:os'
 import { join, basename } from 'node:path'
 import { lockHolderMatchesLock, parseTasklistImageName, type LockIdentity } from './lock-identity.ts'
 import { OAuthFlowStore } from '@craft-agent/shared/auth'
+import { registerBuiltinHarnessDrivers } from '@craft-agent/shared/agent/backend/harness/drivers'
 import { ensureConfigDir, loadStoredConfig, saveConfig } from '@craft-agent/shared/config'
 import { CONFIG_DIR } from '@craft-agent/shared/config/paths'
 import { setBundledAssetsRoot } from '@craft-agent/shared/utils'
@@ -357,6 +358,11 @@ export async function bootstrapServer<TSessionManager, THandlerDeps>(
   bootstrapConfigArtifacts(platform)
   ensureGlobalConfigExists(platform)
   acquireServerLock(platform.logger)
+
+  // Harness drivers (codex + claude, Issue #17) must be registered before any
+  // agent sessions are created — covers both headless and Electron startup
+  // (Electron boots through this same bootstrap path).
+  registerBuiltinHarnessDrivers()
 
   const modelRefreshService = options.initModelRefreshService()
   const sessionManager = options.createSessionManager()

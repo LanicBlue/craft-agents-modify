@@ -17,6 +17,10 @@
  * Reference semantics only (no code reuse): agent-session-control's
  * claude-agent-sdk adapter (resume via query({ resume }), history rebuild
  * gating).
+ *
+ * Registration: via registerBuiltinHarnessDrivers() at startup — both
+ * Electron (main/index.ts) and the headless server (bootstrap/headless-start
+ * bootstrapServer) register this driver (Issue #17 W5-3/W5-4).
  */
 
 import { query, type Query, type Options, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
