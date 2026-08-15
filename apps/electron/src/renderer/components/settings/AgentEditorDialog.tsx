@@ -28,6 +28,7 @@ import { Badge } from '@/components/ui/badge'
 import {
   SettingsInput,
   SettingsSelect,
+  SettingsSegmentedControl,
   SettingsTextarea,
 } from '@/components/settings'
 import { useRegisterModal } from '@/context/ModalContext'
@@ -52,19 +53,13 @@ export interface AgentEditorDialogProps {
 
 const THINKING_OPTIONS: ThinkingLevel[] = ['off', 'low', 'medium', 'high', 'xhigh', 'max']
 const PERMISSION_OPTIONS: PermissionMode[] = ['safe', 'ask', 'allow-all']
+/** Harnesses validated for production (real-machine Gate B): claude + pi. */
+const SELECTABLE_HARNESS = ['claude', 'pi'] as const
 const HARNESS_OPTIONS = ['codex', 'claude', 'kimi', 'pi'] as const
 const CONFIG_MODE_OPTIONS = ['local-inherit', 'managed'] as const
 
 /** Stable id format (Issue #2) — server-side validation is authoritative. */
 const AGENT_ID_PATTERN = /^[a-z][a-z0-9-]{0,63}$/
-
-/**
- * P0 scope (#15/#17): the editor only exposes craft-backend. External-harness
- * execution stays a first-class citizen in the domain model, but the P0 UI
- * never creates or edits it — an existing external-harness revision renders
- * read-only so a save can never silently convert the execution kind.
- */
-const EDITOR_KIND: 'craft-backend' = 'craft-backend'
 
 /** Parse "a, b, c" → ["a","b","c"]; empty → undefined */
 function parseSources(raw: string): string[] | undefined {
@@ -93,13 +88,11 @@ export function AgentEditorDialog({
   const [name, setName] = React.useState('')
   const [agentId, setAgentId] = React.useState('')
   const [description, setDescription] = React.useState('')
-  // 'external-harness' only ever appears when EDITING an agent whose latest
-  // revision already uses it — never selectable, never editable (read-only).
-  const [kind, setKind] = React.useState<'craft-backend' | 'external-harness'>(EDITOR_KIND)
+  const [kind, setKind] = React.useState<'craft-backend' | 'external-harness'>('craft-backend')
   const [llmConnection, setLlmConnection] = React.useState('')
   const [model, setModel] = React.useState('')
-  const [harness, setHarness] = React.useState<string>('codex')
-  const [configMode, setConfigMode] = React.useState<string>('managed')
+  const [harness, setHarness] = React.useState<string>('claude')
+  const [configMode, setConfigMode] = React.useState<string>('local-inherit')
   const [thinkingLevel, setThinkingLevel] = React.useState<string>('medium')
   const [permissionMode, setPermissionMode] = React.useState<string>('ask')
   const [sources, setSources] = React.useState('')
@@ -162,11 +155,11 @@ export function AgentEditorDialog({
     setAgentId('')
     setDescription(agent?.description ?? '')
     setSystemPrompt('')
-    setKind(EDITOR_KIND)
+    setKind('craft-backend')
     setLlmConnection('')
     setModel('')
-    setHarness('codex')
-    setConfigMode('managed')
+    setHarness('claude')
+    setConfigMode('local-inherit')
     setThinkingLevel('medium')
     setPermissionMode('ask')
     setSources('')
@@ -186,7 +179,7 @@ export function AgentEditorDialog({
         } else {
           setHarness(rev.execution.harness)
           setModel(rev.execution.model ?? '')
-          setConfigMode(rev.execution.configMode ?? 'managed')
+          setConfigMode(rev.execution.configMode ?? 'local-inherit')
         }
         setThinkingLevel(rev.thinkingLevel ?? 'medium')
         setPermissionMode(rev.permissionMode ?? 'ask')
@@ -206,12 +199,16 @@ export function AgentEditorDialog({
   const executionChanged = React.useMemo(() => {
     if (!isEdit || !revision) return false
     const exec = revision.execution
-    // External-harness execution is read-only in the P0 editor (#15) — it is
-    // never diffed, so a save never rewrites or converts it.
-    if (exec.kind !== 'craft-backend') return false
     if (kind !== exec.kind) return true
-    return llmConnection !== (exec.llmConnection ?? '') || model !== (exec.model ?? '')
-  }, [isEdit, revision, kind, llmConnection, model])
+    if (exec.kind === 'craft-backend') {
+      return llmConnection !== (exec.llmConnection ?? '') || model !== (exec.model ?? '')
+    }
+    return (
+      harness !== exec.harness ||
+      model !== (exec.model ?? '') ||
+      configMode !== (exec.configMode ?? 'local-inherit')
+    )
+  }, [isEdit, revision, kind, llmConnection, model, harness, configMode])
 
   const systemPromptChanged = isEdit && !!revision && systemPrompt !== revision.systemPrompt
   const thinkingLevelChanged = isEdit && !!revision && thinkingLevel !== (revision.thinkingLevel ?? 'medium')
@@ -239,10 +236,11 @@ export function AgentEditorDialog({
     }
     const execution: AgentExecutionConfig = {
       kind: 'external-harness',
-      harness: harness as 'codex' | 'claude' | 'kimi',
+      harness: harness as 'codex' | 'claude' | 'kimi' | 'pi',
     }
     if (model.trim()) execution.model = model.trim()
-    execution.configMode = configMode as 'local-inherit' | 'managed'
+    // pi is local-inherit only in P0 (the driver rejects managed explicitly).
+    execution.configMode = harness === 'pi' ? 'local-inherit' : (configMode as 'local-inherit' | 'managed')
     return execution
   }
 
@@ -402,6 +400,14 @@ export function AgentEditorDialog({
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
                 {t('settings.agents.execution')}
               </p>
+              <SettingsSegmentedControl
+                value={kind}
+                onValueChange={(v) => setKind(v as 'craft-backend' | 'external-harness')}
+                options={[
+                  { value: 'craft-backend', label: t('settings.agents.craftBackend') },
+                  { value: 'external-harness', label: t('settings.agents.externalHarness') },
+                ]}
+              />
               {kind === 'craft-backend' ? (
                 <>
                   <SettingsInput
@@ -418,30 +424,35 @@ export function AgentEditorDialog({
                   />
                 </>
               ) : (
-                // Existing external-harness agent: read-only display (#15 — the
-                // P0 editor exposes craft-backend only and never converts).
+                // Harness selection exposes the VALIDATED harnesses (claude/pi,
+                // real-machine Gate B); a pre-existing codex/kimi revision keeps
+                // its value visible but can be switched to a supported one.
                 <>
                   <SettingsSelect
                     label={t('settings.agents.harness')}
                     value={harness}
-                    onValueChange={setHarness}
-                    disabled
-                    options={HARNESS_OPTIONS.map((h) => ({ value: h, label: h }))}
+                    onValueChange={(v) => {
+                      setHarness(v)
+                      if (v === 'pi') setConfigMode('local-inherit')
+                    }}
+                    options={[...new Set([...SELECTABLE_HARNESS, harness as (typeof HARNESS_OPTIONS)[number]])].map(
+                      (h) => ({ value: h, label: h }),
+                    )}
                   />
                   <SettingsInput
                     label={t('settings.agents.model')}
                     value={model}
                     onChange={setModel}
                     placeholder={t('settings.agents.model')}
-                    disabled
                   />
-                  <SettingsSelect
-                    label={t('settings.agents.configMode')}
-                    value={configMode}
-                    onValueChange={setConfigMode}
-                    disabled
-                    options={CONFIG_MODE_OPTIONS.map((c) => ({ value: c, label: c }))}
-                  />
+                  {harness === 'claude' && (
+                    <SettingsSelect
+                      label={t('settings.agents.configMode')}
+                      value={configMode}
+                      onValueChange={setConfigMode}
+                      options={CONFIG_MODE_OPTIONS.map((c) => ({ value: c, label: c }))}
+                    />
+                  )}
                 </>
               )}
             </div>
