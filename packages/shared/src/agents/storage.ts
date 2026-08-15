@@ -200,7 +200,7 @@ function isValidExecutionConfig(execution: unknown): execution is AgentExecution
   }
   if (e.kind === 'external-harness') {
     return (
-      (e.harness === 'codex' || e.harness === 'claude' || e.harness === 'kimi') &&
+      (e.harness === 'codex' || e.harness === 'claude' || e.harness === 'kimi' || e.harness === 'pi') &&
       (e.configMode === undefined || e.configMode === 'local-inherit' || e.configMode === 'managed')
     );
   }

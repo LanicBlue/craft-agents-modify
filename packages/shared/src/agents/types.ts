@@ -69,7 +69,7 @@ export type AgentExecutionConfig =
     }
   | {
       kind: 'external-harness';
-      harness: 'codex' | 'claude' | 'kimi';
+      harness: 'codex' | 'claude' | 'kimi' | 'pi';
       model?: string;
       configMode?: 'local-inherit' | 'managed';
     };

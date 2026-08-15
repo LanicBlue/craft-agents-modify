@@ -8,10 +8,12 @@
 
 import { CodexDriver } from './codex-driver.ts';
 import { ClaudeSdkDriver } from './claude-sdk-driver.ts';
+import { PiSdkDriver } from './pi-sdk-driver.ts';
 import { registerHarnessDriver } from '../registry.ts';
 
 export { CodexDriver, type CodexDriverConfig } from './codex-driver.ts';
 export { ClaudeSdkDriver } from './claude-sdk-driver.ts';
+export { PiSdkDriver } from './pi-sdk-driver.ts';
 
 /**
  * Register all built-in harness drivers. Call once at server startup,
@@ -23,4 +25,6 @@ export function registerBuiltinHarnessDrivers(): void {
   // configuration (configMode 'local-inherit' by default — no Craft-supplied
   // systemPrompt/model, SDK uses local OAuth config).
   registerHarnessDriver(new ClaudeSdkDriver());
+  // Pi runs over the in-process pi coding agent SDK, local-inherit only (P0).
+  registerHarnessDriver(new PiSdkDriver());
 }

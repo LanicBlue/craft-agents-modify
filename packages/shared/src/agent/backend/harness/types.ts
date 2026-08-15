@@ -10,7 +10,7 @@
  */
 
 /** Harness type discriminator (matches AgentExecutionConfig harness field) */
-export type HarnessType = 'codex' | 'claude' | 'kimi'
+export type HarnessType = 'codex' | 'claude' | 'kimi' | 'pi'
 
 /**
  * Native harness session. The nativeSessionId is Craft/backend implementation
