@@ -52,7 +52,7 @@ export interface AgentEditorDialogProps {
 
 const THINKING_OPTIONS: ThinkingLevel[] = ['off', 'low', 'medium', 'high', 'xhigh', 'max']
 const PERMISSION_OPTIONS: PermissionMode[] = ['safe', 'ask', 'allow-all']
-const HARNESS_OPTIONS = ['codex', 'claude', 'kimi'] as const
+const HARNESS_OPTIONS = ['codex', 'claude', 'kimi', 'pi'] as const
 const CONFIG_MODE_OPTIONS = ['local-inherit', 'managed'] as const
 
 /** Stable id format (Issue #2) — server-side validation is authoritative. */
