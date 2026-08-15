@@ -43,6 +43,8 @@ interface SessionContext {
   failureMessage?: string;
   /** Set by interrupt()/stop() — an aborted prompt is not reported as error. */
   aborted: boolean;
+  /** In-flight prompt handle of the current run (cleared in finally). */
+  pendingPrompt: Promise<void> | null;
 }
 
 export class PiSdkDriver implements HarnessDriver {
@@ -73,6 +75,7 @@ export class PiSdkDriver implements HarnessDriver {
       configMode: args.configMode,
       session,
       aborted: false,
+      pendingPrompt: null,
     });
     return sessionObj;
   }
@@ -90,6 +93,7 @@ export class PiSdkDriver implements HarnessDriver {
       configMode: args.configMode,
       session: null,
       aborted: false,
+      pendingPrompt: null,
     };
     try {
       if (!existsSync(args.nativeSessionId)) {
@@ -123,68 +127,131 @@ export class PiSdkDriver implements HarnessDriver {
     }
     const agent = ctx.session;
 
-    // Collect events during the prompt, then replay them in order — the
-    // listener fires synchronously, prompt() resolves after the turn ends.
-    const collected: AgentSessionEvent[] = [];
-    const unsubscribe = agent.subscribe((event) => collected.push(event));
+    // Snapshot-and-reset the interrupt flag: only an interrupt issued DURING
+    // this turn suppresses its error; a stale flag from a previous turn must
+    // never swallow a real failure.
+    const interrupted = ctx.aborted;
+    ctx.aborted = false;
+
+    // ---- Event pump (pi's subscribe is callback-based; claude's query is
+    // natively async-iterable — this is the real difference between them).
+    // Events are forwarded IMMEDIATELY as they arrive, never buffered until
+    // the turn ends. ----
+    const pending: AgentSessionEvent[] = [];
+    let wakeupResolve: (() => void) | null = null;
+    let poked = false;
+    const poke = () => {
+      if (wakeupResolve) {
+        wakeupResolve();
+        wakeupResolve = null;
+      } else {
+        poked = true;
+      }
+    };
+    const unsubscribe = agent.subscribe((event) => {
+      pending.push(event);
+      poke();
+    });
+
+    // Object-property state: TS control-flow analysis ignores assignments
+    // inside the .then closures, so a plain `let` would be narrowed to null.
+    const promptState: { settled: boolean; error: Error | null } = { settled: false, error: null };
+    const promptPromise = agent.prompt(message).then(
+      () => {
+        promptState.settled = true;
+        poke(); // wake the pump — never deadlock on a settle with an empty queue
+      },
+      (err: Error) => {
+        promptState.settled = true;
+        promptState.error = err;
+        poke();
+      }
+    );
+    // Background handle — kept so a torn-down run can still be awaited by
+    // callers; cleared in finally.
+    ctx.pendingPrompt = promptPromise;
+
     try {
-      await agent.prompt(message);
-    } catch (err) {
-      if (ctx.aborted) return; // user-initiated interrupt — not an error
-      yield {
-        type: 'error',
-        message: err instanceof Error ? err.message : `Pi prompt failed: ${String(err)}`,
-      };
-      return;
+      let pendingText = '';
+      while (true) {
+        while (pending.length > 0) {
+          const event = pending.shift()!;
+          switch (event.type) {
+            case 'message_update': {
+              const e = event.assistantMessageEvent;
+              if (e.type === 'text_delta') {
+                pendingText += e.delta;
+                yield { type: 'text_delta', text: e.delta };
+              } else if (e.type === 'text_end') {
+                // e.content is the FINAL text for this content index and
+                // supersedes the accumulated deltas; the final draft is
+                // emitted at the turn boundary (agent_end), same as the
+                // claude driver's final-text semantics.
+                pendingText = e.content;
+              }
+              break;
+            }
+            case 'tool_execution_start':
+              yield {
+                type: 'tool_start',
+                toolName: event.toolName,
+                toolUseId: event.toolCallId,
+                input: (event.args ?? {}) as Record<string, unknown>,
+              };
+              break;
+            case 'tool_execution_end':
+              yield {
+                type: 'tool_result',
+                toolUseId: event.toolCallId,
+                toolName: event.toolName,
+                result:
+                  typeof event.result === 'string'
+                    ? event.result
+                    : JSON.stringify(event.result ?? null),
+                isError: event.isError === true,
+              };
+              break;
+            case 'agent_end': {
+              // Turn boundary: flush any remaining text as the final draft.
+              if (pendingText.length > 0) {
+                yield { type: 'text_complete', text: pendingText };
+                pendingText = '';
+              }
+              yield { type: 'complete', usage: lastAssistantUsage(event.messages) };
+              break;
+            }
+            default:
+              break;
+          }
+        }
+        if (promptState.settled) break;
+        // Queue drained and the prompt is still in flight — wait for the next
+        // poke (event arrival or prompt settle poke below).
+        if (!poked) {
+          await new Promise<void>((resolve) => {
+            wakeupResolve = resolve;
+          });
+        } else {
+          poked = false;
+        }
+      }
+
+      // Prompt settled: flush remaining events was done above; report a real
+      // (non-interrupt) failure as an explicit error event.
+      if (promptState.error && !interrupted && !ctx.aborted) {
+        yield {
+          type: 'error',
+          message: promptState.error instanceof Error
+            ? promptState.error.message
+            : `Pi prompt failed: ${String(promptState.error)}`,
+        };
+      }
     } finally {
       unsubscribe();
-    }
-
-    let pendingText = '';
-    for (const event of collected) {
-      switch (event.type) {
-        case 'message_update': {
-          const e = event.assistantMessageEvent;
-          if (e.type === 'text_delta') {
-            pendingText += e.delta;
-            yield { type: 'text_delta', text: e.delta };
-          } else if (e.type === 'text_end') {
-            if (pendingText.length > 0) {
-              yield { type: 'text_complete', text: pendingText };
-              pendingText = '';
-            }
-          }
-          break;
-        }
-        case 'tool_execution_start':
-          yield {
-            type: 'tool_start',
-            toolName: event.toolName,
-            toolUseId: event.toolCallId,
-            input: (event.args ?? {}) as Record<string, unknown>,
-          };
-          break;
-        case 'tool_execution_end':
-          yield {
-            type: 'tool_result',
-            toolUseId: event.toolCallId,
-            toolName: event.toolName,
-            result: typeof event.result === 'string' ? event.result : JSON.stringify(event.result ?? null),
-            isError: event.isError === true,
-          };
-          break;
-        case 'agent_end': {
-          // Turn boundary: flush any remaining text as the final draft.
-          if (pendingText.length > 0) {
-            yield { type: 'text_complete', text: pendingText };
-            pendingText = '';
-          }
-          yield { type: 'complete', usage: lastAssistantUsage(event.messages) };
-          break;
-        }
-        default:
-          break;
-      }
+      ctx.pendingPrompt = null;
+      // Reset the interrupt flag at turn end — a stale flag from this turn
+      // must never be snapshotted as "interrupted" by the NEXT turn.
+      ctx.aborted = false;
     }
   }
 

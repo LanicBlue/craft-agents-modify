@@ -14,13 +14,18 @@ import { tmpdir } from 'node:os';
 // Mock the SDK module BEFORE importing the driver
 // ---------------------------------------------------------------------------
 
-type CreateCall = { options: Record<string, unknown> };
+type CreateCall = { options: Record<string, unknown>; session?: MockAgentSession };
 const createCalls: CreateCall[] = [];
 const openCalls: Array<{ file: string; cwd?: string }> = [];
 let promptBehavior:
   | { kind: 'resolve'; events: Array<{ type: string; [k: string]: unknown }>; messages: unknown[] }
   | { kind: 'reject'; error: Error }
-  | { kind: 'hang' } = { kind: 'resolve', events: [], messages: [] };
+  | { kind: 'hang' }
+  | { kind: 'manual'; initialEvents: Array<{ type: string; [k: string]: unknown }>; resolve: () => void; reject: (err: Error) => void } = {
+  kind: 'resolve',
+  events: [],
+  messages: [],
+};
 const aborts: Array<{ sessionId: string }> = [];
 
 class MockAgentSession {
@@ -36,12 +41,28 @@ class MockAgentSession {
       this.listeners = this.listeners.filter((l) => l !== listener);
     };
   }
+  /** Test hook: deliver an event straight to subscribers (like the SDK does). */
+  fire(event: unknown): void {
+    for (const l of this.listeners) l(event);
+  }
   async prompt(_message: string): Promise<void> {
     const behavior = promptBehavior;
     if (behavior.kind === 'hang') {
       // Simulates a real in-flight turn: settles only when abort() fires.
       await new Promise<void>((_, reject) => {
         this.hangRejects.push(reject);
+      });
+      return;
+    }
+    if (behavior.kind === 'manual') {
+      // First batch arrives synchronously at prompt time; the test controls
+      // when the prompt settles (and may fire more events before that).
+      for (const e of behavior.initialEvents) {
+        for (const l of this.listeners) l(e);
+      }
+      await new Promise<void>((resolve, reject) => {
+        behavior.resolve = resolve;
+        behavior.reject = reject;
       });
       return;
     }
@@ -62,9 +83,10 @@ class MockAgentSession {
 
 mock.module('@earendil-works/pi-coding-agent', () => ({
   createAgentSession: async (options: Record<string, unknown>) => {
-    createCalls.push({ options });
     const file = typeof options.cwd === 'string' ? join(options.cwd as string, 'pi-session.jsonl') : undefined;
-    return { session: new MockAgentSession(`pi-${createCalls.length}`, file) };
+    const session = new MockAgentSession(`pi-${createCalls.length + 1}`, file);
+    createCalls.push({ options, session });
+    return { session };
   },
   SessionManager: {
     open: (file: string, _sessionDir?: string, cwd?: string) => {
@@ -171,15 +193,17 @@ describe('PiSdkDriver', () => {
 
     const events = await collect(driver.run(session, 'hi'));
     const types = events.map((e) => e.type);
+    // Final text (text_complete) is emitted at the turn boundary (agent_end),
+    // after any tool events — same final-text semantics as the claude driver.
     expect(types).toEqual([
       'text_delta',
       'text_delta',
-      'text_complete',
       'tool_start',
       'tool_result',
+      'text_complete',
       'complete',
     ]);
-    expect(events[2]).toEqual({ type: 'text_complete', text: 'Hello world' });
+    expect(events[4]).toEqual({ type: 'text_complete', text: 'Hello world' });
     expect(events[5]).toEqual({ type: 'complete', usage: { inputTokens: 10, outputTokens: 5 } });
   });
 
@@ -219,6 +243,77 @@ describe('PiSdkDriver', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it('streams deltas BEFORE the prompt settles (event pump, not turn-end dump)', async () => {
+    const driver = new PiSdkDriver();
+    const session = await driver.create(BASE_ARGS);
+    const mock = createCalls[0]!.session!;
+
+    promptBehavior = {
+      kind: 'manual',
+      initialEvents: [
+        {
+          type: 'message_update',
+          message: { role: 'assistant' },
+          assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: 'early ' },
+        },
+      ],
+      resolve: () => {},
+      reject: () => {},
+    };
+
+    const iterator = driver.run(session, 'hi')[Symbol.asyncIterator]();
+    // The FIRST event must arrive while the prompt is still in flight.
+    const first = await iterator.next();
+    expect(first.value).toEqual({ type: 'text_delta', text: 'early ' });
+    expect(promptBehavior.kind === 'manual').toBe(true); // prompt not settled yet
+
+    // Second batch arrives before the prompt settles — also streamed live.
+    mock.fire({
+      type: 'message_update',
+      message: { role: 'assistant' },
+      assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: 'second ' },
+    });
+    const second = await iterator.next();
+    expect(second.value).toEqual({ type: 'text_delta', text: 'second ' });
+
+    // Now settle the turn: final text + agent_end.
+    const resolvePrompt = (promptBehavior as { resolve: () => void }).resolve;
+    mock.fire({
+      type: 'message_update',
+      message: { role: 'assistant' },
+      assistantMessageEvent: { type: 'text_end', contentIndex: 0, content: 'early second final' },
+    });
+    mock.fire({ type: 'agent_end', messages: [] });
+    resolvePrompt();
+
+    const rest: Array<{ type: string; [k: string]: unknown }> = [];
+    while (true) {
+      const next = await iterator.next();
+      if (next.done) break;
+      rest.push(next.value as { type: string; [k: string]: unknown });
+    }
+    expect(rest.map((e) => e.type)).toEqual(['text_complete', 'complete']);
+    expect(rest[0]).toEqual({ type: 'text_complete', text: 'early second final' });
+  });
+
+  it('a real error on the turn AFTER an interrupt is not swallowed', async () => {
+    const driver = new PiSdkDriver();
+    const session = await driver.create(BASE_ARGS);
+
+    // Turn 1: user interrupt (hang prompt aborted).
+    promptBehavior = { kind: 'hang' };
+    const run1 = driver.run(session, 'first')[Symbol.asyncIterator]();
+    const done1 = run1.next();
+    await new Promise((r) => setTimeout(r, 10));
+    await driver.interrupt(session);
+    expect((await done1).done).toBe(true);
+
+    // Turn 2: a REAL failure (not an interrupt) — must surface as an error.
+    promptBehavior = { kind: 'reject', error: new Error('api exploded') };
+    const events = await collect(driver.run(session, 'second'));
+    expect(events).toEqual([{ type: 'error', message: 'api exploded' }]);
   });
 
   it('interrupt aborts only its own session (no cross-talk)', async () => {
