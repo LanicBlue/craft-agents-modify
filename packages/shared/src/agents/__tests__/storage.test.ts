@@ -136,6 +136,16 @@ describe('getAgent', () => {
     writeFileSync(join(agentDir(record.id), 'agent.json'), '{corrupt', 'utf-8');
     expectRegistryError(() => storage.getAgent(record.id), 'AGENT_STORAGE_CORRUPT');
   });
+
+  it('rejects an agent.json whose embedded id does not match its directory', () => {
+    const record = storage.createAgent(makeInput());
+    const path = join(agentDir(record.id), 'agent.json');
+    const persisted = JSON.parse(readFileSync(path, 'utf-8'));
+    persisted.id = 'other-agent';
+    writeFileSync(path, JSON.stringify(persisted), 'utf-8');
+
+    expectRegistryError(() => storage.getAgent(record.id), 'AGENT_STORAGE_CORRUPT');
+  });
 });
 
 describe('listAgents', () => {
@@ -302,6 +312,42 @@ describe('revision loading', () => {
       expectRegistryError(() => storage.loadLatestRevision(record.id), 'AGENT_STORAGE_CORRUPT');
       // Restore a valid revision for the next iteration.
       writeFileSync(revPath(record.id, 1), valid, 'utf-8');
+    }
+  });
+
+  it('rejects a revision whose embedded agentId or revision does not match its path', () => {
+    const record = storage.createAgent(makeInput());
+    const path = revPath(record.id, 1);
+    const valid = JSON.parse(readFileSync(path, 'utf-8')) as AgentProfileRevision;
+
+    for (const bad of [
+      { ...valid, agentId: 'other-agent' },
+      { ...valid, revision: 99 },
+    ]) {
+      writeFileSync(path, JSON.stringify(bad), 'utf-8');
+      expectRegistryError(() => storage.loadRevision(record.id, 1), 'AGENT_PROFILE_INVALID');
+      expectRegistryError(() => storage.loadLatestRevision(record.id), 'AGENT_STORAGE_CORRUPT');
+    }
+  });
+
+  it('rejects invalid execution discriminators and optional runtime fields', () => {
+    const record = storage.createAgent(makeInput());
+    const path = revPath(record.id, 1);
+    const valid = JSON.parse(readFileSync(path, 'utf-8')) as AgentProfileRevision;
+
+    const invalidRevisions = [
+      { ...valid, execution: {} },
+      { ...valid, execution: { kind: 'external-harness' } },
+      { ...valid, execution: { kind: 'external-harness', harness: 'unknown' } },
+      { ...valid, execution: { kind: 'craft-backend', model: 42 } },
+      { ...valid, thinkingLevel: 'ultra' },
+      { ...valid, permissionMode: 'unrestricted' },
+      { ...valid, enabledSourceSlugs: ['github', 42] },
+    ];
+
+    for (const bad of invalidRevisions) {
+      writeFileSync(path, JSON.stringify(bad), 'utf-8');
+      expectRegistryError(() => storage.loadRevision(record.id, 1), 'AGENT_PROFILE_INVALID');
     }
   });
 

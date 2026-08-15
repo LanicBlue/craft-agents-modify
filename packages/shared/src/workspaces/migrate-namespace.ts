@@ -17,6 +17,8 @@ import {
   cpSync,
   rmSync,
   readdirSync,
+  lstatSync,
+  readlinkSync,
 } from 'fs';
 import { join } from 'path';
 // NOTE: circular import with ./storage.ts is safe — WORKSPACE_NAMESPACE is only
@@ -62,6 +64,57 @@ const CRITICAL_SUBDIRS = ['sessions', 'sources', 'skills', 'statuses', 'labels']
  */
 function hasLegacyRootItems(rootPath: string): boolean {
   return MIGRATION_ITEMS.some((item) => existsSync(join(rootPath, item.from)));
+}
+
+/**
+ * Prove that a source and destination contain the same data before deleting
+ * the source of an interrupted copy+delete fallback. Existence alone is not
+ * proof: cpSync can leave a partial destination when it throws, and a
+ * same-named namespace entry may predate the migration.
+ */
+function pathsEquivalent(sourcePath: string, destinationPath: string): boolean {
+  try {
+    const source = lstatSync(sourcePath);
+    const destination = lstatSync(destinationPath);
+
+    if (source.isSymbolicLink() || destination.isSymbolicLink()) {
+      return (
+        source.isSymbolicLink() &&
+        destination.isSymbolicLink() &&
+        readlinkSync(sourcePath) === readlinkSync(destinationPath)
+      );
+    }
+
+    if (source.isFile() || destination.isFile()) {
+      return (
+        source.isFile() &&
+        destination.isFile() &&
+        source.size === destination.size &&
+        readFileSync(sourcePath).equals(readFileSync(destinationPath))
+      );
+    }
+
+    if (source.isDirectory() || destination.isDirectory()) {
+      if (!source.isDirectory() || !destination.isDirectory()) return false;
+      const sourceEntries = readdirSync(sourcePath).sort();
+      const destinationEntries = readdirSync(destinationPath).sort();
+      if (
+        sourceEntries.length !== destinationEntries.length ||
+        sourceEntries.some((entry, index) => entry !== destinationEntries[index])
+      ) {
+        return false;
+      }
+      return sourceEntries.every((entry) =>
+        pathsEquivalent(join(sourcePath, entry), join(destinationPath, entry))
+      );
+    }
+
+    // Sockets/devices and other special entries are never safe to reconcile
+    // automatically during workspace metadata migration.
+    return false;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -214,13 +267,19 @@ export function ensureWorkspaceNamespace(rootPath: string): void {
     if (!existsSync(fromPath)) continue;
     sourceExisted.add(item.to);
 
-    // Conflict: namespace already holds this item — never overwrite it.
+    // Namespace already holds this item. Only a byte/tree-equivalent target
+    // proves that the copy phase completed and source deletion may be retried.
     if (existsSync(toPath)) {
-      // Destination present WITH source still present: this state can only
-      // come from a completed copy whose delete failed mid-commit (rename is
-      // atomic and never leaves both). The destination is a full copy, so
-      // retrying the delete completes the commit — persistent failure becomes
-      // an explicit stuck conflict instead of silent re-tries forever.
+      if (!pathsEquivalent(fromPath, toPath)) {
+        stuckItems.add(item.to);
+        debug(
+          `[migrate-namespace] Source and destination differ for ${item.from}; refusing to delete either side`
+        );
+        continue;
+      }
+
+      // Equivalent source + destination means copy completed but delete did
+      // not. Retrying the delete safely completes that item.
       try {
         rmSync(fromPath, { recursive: true, force: true });
         debug(`[migrate-namespace] Removed leftover legacy source ${item.from} after completed copy`);
@@ -257,14 +316,15 @@ export function ensureWorkspaceNamespace(rootPath: string): void {
 
   ensureCriticalSubdirs(nsDir);
 
-  // Stuck sources: the copy completed but the legacy source could not be
-  // deleted. Explicit conflict — no marker, nothing else touched.
+  // Stuck/conflicting sources: deletion failed or the destination could not
+  // be proven equivalent. Explicit conflict — no marker and both copies of
+  // every conflicting item remain available for manual resolution.
   if (stuckItems.size > 0) {
     console.warn(
       `[craft-agent] Workspace migration stuck at ${rootPath}:\n` +
-      `  Copied legacy items cannot be removed from the workspace root: ${[...stuckItems].join(', ')}.\n` +
+      `  Legacy items cannot be reconciled safely: ${[...stuckItems].join(', ')}.\n` +
       `  Migration skipped — no completion marker written.\n` +
-      `  Manual resolution required: remove the legacy file(s) at the workspace root or grant write permission.`
+      `  Manual resolution required: verify the source and destination contents, then remove the obsolete copy or grant write permission.`
     );
     return;
   }

@@ -222,6 +222,41 @@ describe('ensureWorkspaceNamespace (marker + recovery)', () => {
     expect(readMarker().items).toContain('automations.json');
   });
 
+  it('equivalent directory source+dest → source removed only after recursive comparison', () => {
+    mkdirSync(join(nsDir(), 'sessions'), { recursive: true });
+    mkdirSync(join(ws, 'sessions'), { recursive: true });
+    writeFileSync(join(nsDir(), 'sessions', 'data.txt'), 'same-data', 'utf-8');
+    writeFileSync(join(ws, 'sessions', 'data.txt'), 'same-data', 'utf-8');
+
+    ensureWorkspaceNamespace(ws);
+
+    expect(existsSync(join(ws, 'sessions'))).toBe(false);
+    expect(readFileSync(join(nsDir(), 'sessions', 'data.txt'), 'utf-8')).toBe('same-data');
+    expect(existsSync(markerPath())).toBe(true);
+  });
+
+  it('source+dest content mismatch → explicit conflict, no marker, both sides preserved', () => {
+    mkdirSync(nsDir(), { recursive: true });
+    writeFileSync(join(ws, 'automations.json'), '{"source":"complete"}', 'utf-8');
+    writeFileSync(join(nsDir(), 'automations.json'), '{"destination":"partial-or-unrelated"}', 'utf-8');
+
+    const warns: string[] = [];
+    const origWarn = console.warn;
+    console.warn = (msg: string) => { warns.push(msg) };
+    try {
+      ensureWorkspaceNamespace(ws);
+    } finally {
+      console.warn = origWarn;
+    }
+
+    expect(warns.some((w) => w.toLowerCase().includes('manual resolution required'))).toBe(true);
+    expect(existsSync(markerPath())).toBe(false);
+    expect(readFileSync(join(ws, 'automations.json'), 'utf-8')).toBe('{"source":"complete"}');
+    expect(readFileSync(join(nsDir(), 'automations.json'), 'utf-8')).toBe(
+      '{"destination":"partial-or-unrelated"}'
+    );
+  });
+
   it('stuck source that cannot be deleted → explicit warn, no marker, both sides untouched', () => {
     // Dest present + source present, and the delete keeps failing. Real-world
     // reproduction: make the workspace root read-only so rmSync of the legacy

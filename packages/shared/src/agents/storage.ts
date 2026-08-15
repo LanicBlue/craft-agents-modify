@@ -36,8 +36,10 @@ import { CONFIG_DIR } from '../config/paths.ts';
 import { atomicWriteFileSync, readJsonFileSync } from '../utils/files.ts';
 import { debug } from '../utils/debug.ts';
 import type { WorkspaceConfig } from '../workspaces/types.ts';
-import type { ThinkingLevel } from '../agent/thinking-levels.ts';
+import { isValidThinkingLevel, type ThinkingLevel } from '../agent/thinking-levels.ts';
+import { PERMISSION_MODE_ORDER } from '../agent/mode-types.ts';
 import type {
+  AgentExecutionConfig,
   AgentRecord,
   AgentProfileRevision,
   AgentProfileSnapshot,
@@ -112,19 +114,27 @@ function getRevisionPath(agentId: string, revision: number): string {
 // Record I/O
 // ============================================================
 
-/** Shape-validate an AgentRecord; returns null when the shape is invalid. */
-function isValidRecord(record: unknown): record is AgentRecord {
-  if (typeof record !== 'object' || record === null) return false;
+/** Shape-validate an AgentRecord and optionally bind it to its directory id. */
+function isValidRecord(record: unknown, expectedAgentId?: string): record is AgentRecord {
+  if (typeof record !== 'object' || record === null || Array.isArray(record)) return false;
   const r = record as Record<string, unknown>;
   return (
     r.schemaVersion === SCHEMA_VERSION &&
     typeof r.id === 'string' &&
+    AGENT_ID_PATTERN.test(r.id) &&
+    (expectedAgentId === undefined || r.id === expectedAgentId) &&
     typeof r.name === 'string' &&
     (r.status === 'active' || r.status === 'retired') &&
-    typeof r.recordVersion === 'number' &&
-    typeof r.latestProfileRevision === 'number' &&
-    typeof r.createdAt === 'number' &&
-    typeof r.updatedAt === 'number'
+    Number.isInteger(r.recordVersion) &&
+    (r.recordVersion as number) >= 1 &&
+    Number.isInteger(r.latestProfileRevision) &&
+    (r.latestProfileRevision as number) >= 1 &&
+    typeof r.createdAt === 'number' && Number.isFinite(r.createdAt) &&
+    typeof r.updatedAt === 'number' && Number.isFinite(r.updatedAt) &&
+    (r.retiredAt === undefined || (typeof r.retiredAt === 'number' && Number.isFinite(r.retiredAt))) &&
+    (r.description === undefined || typeof r.description === 'string') &&
+    (r.capabilities === undefined ||
+      (Array.isArray(r.capabilities) && r.capabilities.every((value) => typeof value === 'string')))
   );
 }
 
@@ -134,7 +144,7 @@ function loadRecord(agentId: string): AgentRecord | null {
   if (!existsSync(recordPath)) return null;
   try {
     const record = readJsonFileSync<AgentRecord>(recordPath);
-    if (!isValidRecord(record)) {
+    if (!isValidRecord(record, agentId)) {
       throw new AgentRegistryError('AGENT_STORAGE_CORRUPT', `Corrupt agent record for ${agentId} (invalid shape)`);
     }
     return record;
@@ -164,6 +174,7 @@ function saveRecord(record: AgentRecord): void {
  * file name).
  */
 function saveRevision(revision: AgentProfileRevision): void {
+  assertValidRevision(revision, revision.agentId, revision.revision);
   validateAgentId(revision.agentId);
   const revisionsDir = getRevisionsDir(revision.agentId);
   if (!existsSync(revisionsDir)) {
@@ -175,20 +186,55 @@ function saveRevision(revision: AgentProfileRevision): void {
   );
 }
 
-/** Shape-validate a revision; throws AGENT_PROFILE_INVALID when malformed. */
-function assertValidRevision(revision: unknown): asserts revision is AgentProfileRevision {
+function isOptionalString(value: unknown): boolean {
+  return value === undefined || typeof value === 'string';
+}
+
+function isValidExecutionConfig(execution: unknown): execution is AgentExecutionConfig {
+  if (typeof execution !== 'object' || execution === null || Array.isArray(execution)) return false;
+  const e = execution as Record<string, unknown>;
+  if (!isOptionalString(e.model)) return false;
+
+  if (e.kind === 'craft-backend') {
+    return isOptionalString(e.llmConnection);
+  }
+  if (e.kind === 'external-harness') {
+    return (
+      (e.harness === 'codex' || e.harness === 'claude' || e.harness === 'kimi') &&
+      (e.configMode === undefined || e.configMode === 'local-inherit' || e.configMode === 'managed')
+    );
+  }
+  return false;
+}
+
+/**
+ * Validate a persisted revision and bind its embedded identity to the file
+ * requested by the caller. A well-shaped profile for another agent/revision
+ * is still storage corruption and must never cross an identity boundary.
+ */
+function assertValidRevision(
+  revision: unknown,
+  expectedAgentId: string,
+  expectedRevision: number
+): asserts revision is AgentProfileRevision {
   if (typeof revision !== 'object' || revision === null || Array.isArray(revision)) {
     throw new AgentRegistryError('AGENT_PROFILE_INVALID', 'Invalid agent profile revision shape');
   }
   const r = revision as Record<string, unknown>;
   const valid =
-    typeof r.agentId === 'string' &&
-    typeof r.revision === 'number' &&
-    typeof r.execution === 'object' &&
-    r.execution !== null &&
-    !Array.isArray(r.execution) &&
+    r.agentId === expectedAgentId &&
+    r.revision === expectedRevision &&
+    Number.isInteger(r.revision) &&
+    (r.revision as number) >= 1 &&
+    isValidExecutionConfig(r.execution) &&
     typeof r.systemPrompt === 'string' &&
-    typeof r.createdAt === 'number';
+    typeof r.createdAt === 'number' &&
+    Number.isFinite(r.createdAt) &&
+    (r.thinkingLevel === undefined || isValidThinkingLevel(r.thinkingLevel)) &&
+    (r.permissionMode === undefined || PERMISSION_MODE_ORDER.includes(r.permissionMode as never)) &&
+    (r.enabledSourceSlugs === undefined ||
+      (Array.isArray(r.enabledSourceSlugs) &&
+        r.enabledSourceSlugs.every((value) => typeof value === 'string')));
   if (!valid) {
     throw new AgentRegistryError('AGENT_PROFILE_INVALID', 'Invalid agent profile revision shape');
   }
@@ -210,7 +256,7 @@ export function loadRevision(agentId: string, revision: number): AgentProfileRev
   }
   try {
     const parsed = readJsonFileSync<AgentProfileRevision>(revisionPath);
-    assertValidRevision(parsed);
+    assertValidRevision(parsed, agentId, revision);
     return parsed;
   } catch (err) {
     if (err instanceof AgentRegistryError) throw err;
@@ -440,7 +486,7 @@ export function listAgents(options?: { includeRetired?: boolean }): AgentRecord[
     if (!existsSync(recordPath)) continue;
     try {
       const record = readJsonFileSync<AgentRecord>(recordPath);
-      if (!isValidRecord(record)) {
+      if (!isValidRecord(record, entry)) {
         debug(`[agents] skipping corrupt agent record at ${recordPath}`);
         continue;
       }
@@ -535,6 +581,8 @@ export function updateAgent(
       } else if (previous.enabledSourceSlugs !== undefined) {
         revision.enabledSourceSlugs = previous.enabledSourceSlugs;
       }
+
+      assertValidRevision(revision, agentId, nextRevisionNumber);
 
       // Write N+1 temp file → atomic rename publish → pointer bump + CAS
       // recordVersion in one atomic agent.json write.
