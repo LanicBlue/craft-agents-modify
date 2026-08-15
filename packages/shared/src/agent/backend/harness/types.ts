@@ -15,9 +15,13 @@ export type HarnessType = 'codex' | 'claude' | 'kimi'
 /**
  * Native harness session. The nativeSessionId is Craft/backend implementation
  * truth — never exposed as Project Service workflow identity (ADR Decision 9).
+ *
+ * Lazy-materializing drivers (SDK-based, e.g. claude) may start with an EMPTY
+ * nativeSessionId from create() and report the real id via a `session_bound`
+ * event during the first run — the backend persists it then (restart-safe).
  */
 export interface HarnessSession {
-  /** Native harness session identifier */
+  /** Native harness session identifier (may start empty for lazy drivers) */
   nativeSessionId: string
   /** True when explicitly created/bound by this Craft installation */
   managed: boolean
@@ -32,6 +36,12 @@ export type HarnessEvent =
   | { type: 'permission_request'; requestId: string; toolName: string; description: string; command?: string }
   | { type: 'error'; message: string }
   | { type: 'complete'; usage?: { inputTokens: number; outputTokens: number } }
+  | {
+      /** Lazy-materializing drivers report the real native session id during
+       * the first run; the backend persists it via onSdkSessionIdUpdate. */
+      type: 'session_bound'
+      nativeSessionId: string
+    }
 
 /** Arguments for creating a new harness session */
 export interface HarnessCreateArgs {

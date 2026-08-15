@@ -51,6 +51,10 @@ export function normalizeHarnessEvent(event: HarnessEvent): AgentEvent {
       return { type: 'error', message: event.message };
     case 'complete':
       return { type: 'complete', usage: event.usage };
+    case 'session_bound':
+      // Handled by ExternalHarnessBackend.chatImpl (persisted, not forwarded
+      // downstream) — reaching the normalizer is a caller bug.
+      throw new Error('session_bound events are handled by the backend, not normalized');
   }
 }
 
@@ -132,6 +136,18 @@ export class ExternalHarnessBackend extends BaseAgent {
     this._isProcessing = true;
     try {
       for await (const event of this.driver.run(this.session, message)) {
+        if (event.type === 'session_bound') {
+          // Lazy-materializing driver: the native session id only becomes
+          // known during the first run. Persist it (idempotent — identical
+          // ids skip the callback to avoid persistence churn) so a restart
+          // resumes instead of orphaning the native session. Not forwarded
+          // downstream as an AgentEvent.
+          if (this.session.nativeSessionId !== event.nativeSessionId) {
+            this.session.nativeSessionId = event.nativeSessionId;
+            this.config.onSdkSessionIdUpdate?.(event.nativeSessionId);
+          }
+          continue;
+        }
         yield normalizeHarnessEvent(event);
       }
     } finally {
