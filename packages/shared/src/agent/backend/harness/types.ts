@@ -12,6 +12,24 @@
 /** Harness type discriminator (matches AgentExecutionConfig harness field) */
 export type HarnessType = 'codex' | 'claude' | 'kimi' | 'pi'
 
+import type { PermissionMode } from '../../mode-types.ts';
+
+/** One model option a harness reports as available for the local config. */
+export interface HarnessModelOption {
+  /** Model identifier (harness-native). */
+  id: string
+  /** Human-readable display name (optional). */
+  name?: string
+  /** Thinking levels the harness reports this model supports. */
+  thinkingLevels?: string[]
+}
+
+/** Option ranges a harness can report for its configuration surface. */
+export interface HarnessOptions {
+  models: HarnessModelOption[]
+  permissionModes?: PermissionMode[]
+}
+
 /**
  * Native harness session. The nativeSessionId is Craft/backend implementation
  * truth — never exposed as Project Service workflow identity (ADR Decision 9).
@@ -90,4 +108,11 @@ export interface HarnessDriver {
 
   /** Stop and tear down the native session */
   stop(session: HarnessSession): Promise<void>
+
+  /**
+   * Option ranges the harness reports for the CURRENT local configuration
+   * (optional — harnesses without a queryable surface omit it). Editor
+   * option lists derive from this instead of Craft-hardcoded values (W7).
+   */
+  listOptions?(): Promise<HarnessOptions>
 }

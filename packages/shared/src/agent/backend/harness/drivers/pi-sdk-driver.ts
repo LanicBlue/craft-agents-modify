@@ -36,12 +36,15 @@ import type {
   HarnessEvent,
   HarnessCreateArgs,
   HarnessResumeArgs,
+  HarnessOptions,
 } from '../types.ts';
 
 /** Lazily-loaded pi SDK value surface (types above are compile-time only). */
 type PiSdk = {
   createAgentSession: typeof import('@earendil-works/pi-coding-agent')['createAgentSession'];
   SessionManager: typeof import('@earendil-works/pi-coding-agent')['SessionManager'];
+  AuthStorage: typeof import('@earendil-works/pi-coding-agent')['AuthStorage'];
+  ModelRegistry: typeof import('@earendil-works/pi-coding-agent')['ModelRegistry'];
 };
 let piSdkPromise: Promise<PiSdk> | null = null;
 async function loadPiSdk(): Promise<PiSdk> {
@@ -78,6 +81,34 @@ export class PiSdkDriver implements HarnessDriver {
         'pi harness supports local-inherit only in P0 (managed provider/model resolution is not implemented)'
       );
     }
+  }
+
+  /**
+   * Option ranges from the user's local pi config (model registry filtered by
+   * configured auth; permission modes are the Craft-fixed set).
+   */
+  async listOptions(): Promise<HarnessOptions> {
+    const { AuthStorage, ModelRegistry } = await loadPiSdk();
+    const authStorage = AuthStorage.create();
+    const registry = ModelRegistry.create(authStorage);
+    const models = registry.getAvailable().map((m) => {
+      const thinkingLevels: string[] = [];
+      if (!m.reasoning) {
+        thinkingLevels.push('off');
+      } else if (m.thinkingLevelMap) {
+        // Preserve the canonical order off/low/medium/high/xhigh/max and
+        // keep only levels the model actually supports (null = unsupported).
+        for (const level of ['off', 'low', 'medium', 'high', 'xhigh', 'max'] as const) {
+          if (m.thinkingLevelMap[level] !== null && m.thinkingLevelMap[level] !== undefined) {
+            thinkingLevels.push(level);
+          }
+        }
+      } else {
+        thinkingLevels.push('off', 'low', 'medium', 'high', 'xhigh', 'max');
+      }
+      return { id: m.id, name: m.name, thinkingLevels };
+    });
+    return { models, permissionModes: ['safe', 'ask', 'allow-all'] };
   }
 
   /** Eager create: a real SDK session is materialized right away. */

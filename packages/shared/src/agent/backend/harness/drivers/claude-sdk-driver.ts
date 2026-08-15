@@ -24,6 +24,9 @@
  */
 
 import { query, type Query, type Options, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
+import { mkdtempSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import { debug } from '../../../../utils/debug.ts';
 import type {
   HarnessDriver,
@@ -31,6 +34,7 @@ import type {
   HarnessEvent,
   HarnessCreateArgs,
   HarnessResumeArgs,
+  HarnessOptions,
 } from '../types.ts';
 
 /** Per-session context captured at create/resume time (run() only receives
@@ -57,6 +61,55 @@ export class ClaudeSdkDriver implements HarnessDriver {
     HarnessSession,
     { query: Query | null; abort: AbortController | null }
   >();
+
+  /**
+   * Option ranges from the user's local Claude config: enters streaming input
+   * mode with a controllable empty prompt, asks the SDK for supported models
+   * (with their effort levels), then interrupts and drains the query so the
+   * SDK cleans up its subprocess. The temp cwd is removed afterwards.
+   */
+  async listOptions(): Promise<HarnessOptions> {
+    const cwd = mkdtempSync(join(tmpdir(), 'claude-options-'));
+    try {
+      // Streaming input mode: prompt is an AsyncIterable we never push to.
+      const stream = query({
+        prompt: (async function* emptyPrompt(): AsyncIterable<never> {
+          yield* [];
+        })(),
+        options: { cwd, includePartialMessages: true },
+      });
+      let models: { id: string; name?: string; thinkingLevels?: string[] }[] = [];
+      try {
+        const infos = await stream.supportedModels();
+        models = infos.map((info) => ({
+          id: info.value,
+          name: info.displayName,
+          thinkingLevels: ['off', ...(info.supportedEffortLevels ?? ['low', 'medium', 'high'])],
+        }));
+      } finally {
+        // Interrupt + drain so the SDK terminates its subprocess cleanly.
+        try {
+          await stream.interrupt();
+        } catch {
+          // best-effort — draining below still settles the query
+        }
+        try {
+          for await (const _ of stream) {
+            // drain
+          }
+        } catch {
+          // query may already be closed by interrupt — ignore
+        }
+      }
+      return { models, permissionModes: ['safe', 'ask', 'allow-all'] };
+    } finally {
+      try {
+        rmSync(cwd, { recursive: true, force: true });
+      } catch {
+        // best-effort cleanup
+      }
+    }
+  }
 
   /** Create is lazy: no SDK call happens here. The native session is
    * materialized by the first run(); its real id is reported via
