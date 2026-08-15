@@ -106,6 +106,11 @@ describe('ClaudeSdkDriver', () => {
     expect(types.indexOf('session_bound')).toBe(0);
     expect(events[0]).toEqual({ type: 'session_bound', nativeSessionId: 'sdk-session-1' });
     expect(types).toContain('text_delta');
+    // Protocol contract: the turn ends with the FINAL text (text_complete)
+    // before complete — downstream finalizes the assistant message on it.
+    expect(events).toContainEqual({ type: 'text_complete', text: 'hello there' });
+    expect(types.indexOf('text_complete')).toBeGreaterThan(types.indexOf('text_delta'));
+    expect(types.indexOf('complete')).toBeGreaterThan(types.indexOf('text_complete'));
     expect(types).toContain('complete');
 
     // local-inherit: no systemPrompt/model in the SDK options.
@@ -207,5 +212,30 @@ describe('ClaudeSdkDriver', () => {
     // No exception, and the in-flight stream is cancelled via the controller.
     expect(queryCalls[0]!.options.abortController).toBeInstanceOf(AbortController);
     expect(queryCalls[0]!.options.abortController!.signal.aborted).toBe(true);
+  });
+
+  it('concurrent sessions: interrupt only touches its own in-flight handles', async () => {
+    const driver = new ClaudeSdkDriver();
+    const sessionA = await driver.create(BASE_ARGS);
+    const sessionB = await driver.create(BASE_ARGS);
+
+    streamMessages = [
+      { type: 'system', subtype: 'init', session_id: 'sdk-x', tools: [] },
+    ];
+
+    const itA = driver.run(sessionA, 'first')[Symbol.asyncIterator]();
+    await itA.next();
+    const itB = driver.run(sessionB, 'second')[Symbol.asyncIterator]();
+    await itB.next();
+
+    await driver.interrupt(sessionA);
+
+    // Only session A's query was aborted; B's in-flight stream is untouched.
+    expect(queryCalls[0]!.options.abortController!.signal.aborted).toBe(true);
+    expect(queryCalls[1]!.options.abortController!.signal.aborted).toBe(false);
+
+    // And stop() is equally scoped.
+    await driver.stop(sessionB);
+    expect(queryCalls[1]!.options.abortController!.signal.aborted).toBe(true);
   });
 });

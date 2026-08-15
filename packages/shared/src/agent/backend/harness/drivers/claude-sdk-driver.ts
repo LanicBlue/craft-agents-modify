@@ -47,8 +47,12 @@ export class ClaudeSdkDriver implements HarnessDriver {
    * across concurrent sessions sharing this singleton driver). */
   private readonly contexts = new WeakMap<HarnessSession, SessionContext>();
 
-  private activeQuery: Query | null = null;
-  private activeAbort: AbortController | null = null;
+  /** Per-session in-flight handles — NEVER a single slot: the driver is a
+   * registry singleton and concurrent sessions must not abort each other. */
+  private readonly runHandles = new WeakMap<
+    HarnessSession,
+    { query: Query | null; abort: AbortController | null }
+  >();
 
   /** Create is lazy: no SDK call happens here. The native session is
    * materialized by the first run(); its real id is reported via
@@ -88,7 +92,8 @@ export class ClaudeSdkDriver implements HarnessDriver {
     }
 
     const abort = new AbortController();
-    this.activeAbort = abort;
+    const handles = { query: null as Query | null, abort };
+    this.runHandles.set(session, handles);
 
     const options: Options = {
       cwd: ctx.cwd,
@@ -107,9 +112,10 @@ export class ClaudeSdkDriver implements HarnessDriver {
     }
 
     let stream: Query | null = null;
+    let pendingText = '';
     try {
       stream = query({ prompt: message, options });
-      this.activeQuery = stream;
+      handles.query = stream;
 
       let boundId = session.nativeSessionId;
       for await (const msg of stream) {
@@ -120,8 +126,97 @@ export class ClaudeSdkDriver implements HarnessDriver {
           boundId = sid;
           yield { type: 'session_bound', nativeSessionId: sid };
         }
-        for (const event of mapSdkMessage(msg)) {
-          yield event;
+
+        switch (msg.type) {
+          case 'stream_event': {
+            // SDKPartialAssistantMessage — incremental deltas
+            // (includePartialMessages).
+            const event = msg.event;
+            if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+              pendingText += event.delta.text;
+              yield { type: 'text_delta', text: event.delta.text };
+            }
+            break;
+          }
+          case 'assistant': {
+            const content = msg.message?.content;
+            if (Array.isArray(content)) {
+              for (const block of content) {
+                if (block.type === 'text' && typeof block.text === 'string') {
+                  pendingText += block.text;
+                  yield { type: 'text_delta', text: block.text };
+                } else if (block.type === 'tool_use') {
+                  yield {
+                    type: 'tool_start',
+                    toolName: block.name,
+                    toolUseId: block.id,
+                    input: (block.input ?? {}) as Record<string, unknown>,
+                  };
+                }
+              }
+            }
+            // Assistant message boundary: emit the final text (protocol
+            // contract — downstream finalizes the assistant message on
+            // text_complete, same behavior surface as CodexDriver).
+            if (pendingText.length > 0) {
+              yield { type: 'text_complete', text: pendingText };
+              pendingText = '';
+            }
+            break;
+          }
+          case 'user': {
+            // Tool results ride on SDK user messages.
+            const content = msg.message?.content;
+            if (Array.isArray(content)) {
+              for (const block of content) {
+                if (block.type === 'tool_result') {
+                  const result =
+                    typeof block.content === 'string'
+                      ? block.content
+                      : Array.isArray(block.content)
+                        ? block.content
+                            .map((part) => (typeof part === 'string' ? part : part.type === 'text' ? part.text : JSON.stringify(part)))
+                            .join('\n')
+                        : JSON.stringify(block.content);
+                  yield {
+                    type: 'tool_result',
+                    toolUseId: block.tool_use_id,
+                    result,
+                    isError: block.is_error === true,
+                  };
+                }
+              }
+            }
+            break;
+          }
+          case 'result': {
+            if (msg.subtype === 'success' && !msg.is_error) {
+              if (pendingText.length > 0) {
+                yield { type: 'text_complete', text: pendingText };
+                pendingText = '';
+              }
+              yield {
+                type: 'complete',
+                usage: {
+                  inputTokens: msg.usage?.input_tokens ?? 0,
+                  outputTokens: msg.usage?.output_tokens ?? 0,
+                },
+              };
+            } else {
+              // error_during_execution / error_max_turns / ... — explicit
+              // error, the stream terminates (no silent fork, no retry).
+              const detail =
+                msg.subtype === 'error_during_execution' && Array.isArray(msg.errors) && msg.errors.length > 0
+                  ? msg.errors.join('; ')
+                  : msg.subtype;
+              yield { type: 'error', message: `Claude session failed: ${detail}` };
+            }
+            break;
+          }
+          default:
+            // system/init, status, permission control messages etc. carry
+            // the session_id (already handled) but no user-facing events.
+            break;
         }
       }
     } catch (err) {
@@ -132,14 +227,15 @@ export class ClaudeSdkDriver implements HarnessDriver {
         message: err instanceof Error ? err.message : `Claude SDK query failed: ${String(err)}`,
       };
     } finally {
-      if (this.activeQuery === stream) this.activeQuery = null;
-      this.activeAbort = null;
+      this.runHandles.delete(session);
     }
   }
 
-  /** Graceful SDK interrupt (query.interrupt()); abort controller as backstop. */
+  /** Graceful SDK interrupt (query.interrupt()); abort controller as backstop.
+   * Operates ONLY on the given session's own in-flight handles. */
   async interrupt(session: HarnessSession): Promise<void> {
-    const stream = this.activeQuery;
+    const handles = this.runHandles.get(session);
+    const stream = handles?.query ?? null;
     if (stream && typeof stream.interrupt === 'function') {
       try {
         await stream.interrupt();
@@ -148,98 +244,18 @@ export class ClaudeSdkDriver implements HarnessDriver {
         debug(`[claude-sdk] interrupt request failed, falling back to abort: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
-    this.activeAbort?.abort();
+    handles?.abort?.abort();
   }
 
-  /** Tear down: abort the in-flight query. Contexts are WeakMap-held. */
-  async stop(_session: HarnessSession): Promise<void> {
-    this.activeAbort?.abort();
-    this.activeQuery = null;
+  /** Tear down this session: abort its own in-flight query. Contexts are
+   * WeakMap-held. */
+  async stop(session: HarnessSession): Promise<void> {
+    const handles = this.runHandles.get(session);
+    handles?.abort?.abort();
+    if (handles) {
+      handles.query = null;
+    }
+    this.runHandles.delete(session);
   }
 }
 
-/**
- * Map one SDK message to zero-or-more HarnessEvents.
- * Structural mapping only (no dependency on ClaudeAgent's adapter).
- */
-function mapSdkMessage(msg: SDKMessage): HarnessEvent[] {
-  switch (msg.type) {
-    case 'stream_event': {
-      // SDKPartialAssistantMessage — incremental deltas (includePartialMessages).
-      const event = msg.event;
-      if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
-        return [{ type: 'text_delta', text: event.delta.text }];
-      }
-      return [];
-    }
-    case 'assistant': {
-      const events: HarnessEvent[] = [];
-      const content = msg.message?.content;
-      if (Array.isArray(content)) {
-        for (const block of content) {
-          if (block.type === 'text' && typeof block.text === 'string') {
-            events.push({ type: 'text_delta', text: block.text });
-          } else if (block.type === 'tool_use') {
-            events.push({
-              type: 'tool_start',
-              toolName: block.name,
-              toolUseId: block.id,
-              input: (block.input ?? {}) as Record<string, unknown>,
-            });
-          }
-        }
-      }
-      return events;
-    }
-    case 'user': {
-      // Tool results ride on SDK user messages.
-      const events: HarnessEvent[] = [];
-      const content = msg.message?.content;
-      if (Array.isArray(content)) {
-        for (const block of content) {
-          if (block.type === 'tool_result') {
-            const result =
-              typeof block.content === 'string'
-                ? block.content
-                : Array.isArray(block.content)
-                  ? block.content
-                      .map((part) => (typeof part === 'string' ? part : part.type === 'text' ? part.text : JSON.stringify(part)))
-                      .join('\n')
-                  : JSON.stringify(block.content);
-            events.push({
-              type: 'tool_result',
-              toolUseId: block.tool_use_id,
-              result,
-              isError: block.is_error === true,
-            });
-          }
-        }
-      }
-      return events;
-    }
-    case 'result': {
-      if (msg.subtype === 'success' && !msg.is_error) {
-        return [
-          {
-            type: 'complete',
-            usage: {
-              inputTokens: msg.usage?.input_tokens ?? 0,
-              outputTokens: msg.usage?.output_tokens ?? 0,
-            },
-          },
-        ];
-      }
-      // error_during_execution / error_max_turns / ... — explicit error, the
-      // stream terminates (no silent fork, no retry).
-      const detail =
-        msg.subtype === 'error_during_execution' && Array.isArray(msg.errors) && msg.errors.length > 0
-          ? msg.errors.join('; ')
-          : msg.subtype;
-      return [{ type: 'error', message: `Claude session failed: ${detail}` }];
-    }
-    default:
-      // system/init, status, permission control messages etc. carry the
-      // session_id (already handled) but no user-facing events.
-      return [];
-  }
-}
