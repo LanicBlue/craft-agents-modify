@@ -15,6 +15,7 @@ const EXPECTED_WIRE_STRINGS = {
   'agents:retire': 'agents:retire',
   'agents:restore': 'agents:restore',
   'agents:getLatestRevision': 'agents:getLatestRevision',
+  'agents:listHarnessOptions': 'agents:listHarnessOptions',
   'agentSessions:list': 'agentSessions:list',
   'agentSessions:ensure': 'agentSessions:ensure',
   'agentSessions:dispatch': 'agentSessions:dispatch',
@@ -33,10 +34,10 @@ describe('Issue #5 agent channels', () => {
   })
 
   test('channel wire strings match the Issue #5/#15 spec', () => {
-    expect(agentChannelValues).toHaveLength(12)
+    expect(agentChannelValues).toHaveLength(13)
     const wireSet = new Set(agentChannelValues)
     // Every spec'd wire string must appear exactly once across the two namespaces
-    expect(wireSet.size).toBe(12)
+    expect(wireSet.size).toBe(13)
     for (const wire of Object.values(EXPECTED_WIRE_STRINGS)) {
       expect(wireSet.has(wire)).toBe(true)
     }

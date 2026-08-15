@@ -33,6 +33,11 @@ import { loadSession } from '@craft-agent/shared/sessions'
 import type { RpcServer } from '@craft-agent/server-core/transport'
 import { CodedError } from '@craft-agent/shared/protocol'
 import type { HandlerDeps } from '../handler-deps'
+import {
+  getHarnessDriver,
+  type HarnessType,
+  type HarnessOptions,
+} from '@craft-agent/shared/agent/backend'
 
 /**
  * Convert AgentSessionBindingError / AgentRegistryError into structured RPC
@@ -105,6 +110,17 @@ export function registerAgentsHandlers(server: RpcServer, deps: HandlerDeps): vo
     } catch (e) {
       throw bindingErrorToRpc(e)
     }
+  })
+
+  // Option ranges for a harness' configuration surface (Issue #17 W7):
+  // drivers that can't report options (codex/kimi) or are unregistered yield
+  // null (fail-soft — the renderer falls back to hardcoded lists). Driver
+  // errors (e.g. missing local auth) propagate as-is for the renderer to
+  // catch and fall back — never swallowed or rewritten.
+  server.handle(RPC_CHANNELS.agents.LIST_HARNESS_OPTIONS, async (_ctx, harness: string) => {
+    const driver = getHarnessDriver(harness as HarnessType)
+    if (!driver?.listOptions) return null
+    return driver.listOptions()
   })
 
   // ------------------------------------------------------------------

@@ -432,6 +432,7 @@ export const REMOTE_ELIGIBLE_CHANNELS = new Set<string>([
   RPC_CHANNELS.agents.RETIRE,
   RPC_CHANNELS.agents.RESTORE,
   RPC_CHANNELS.agents.GET_LATEST_REVISION,
+  RPC_CHANNELS.agents.LIST_HARNESS_OPTIONS,
 
   // agentSessions — execution control (workspace-scoped)
   RPC_CHANNELS.agentSessions.LIST,

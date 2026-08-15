@@ -412,6 +412,7 @@ export const RPC_CHANNELS = {
     RETIRE: 'agents:retire',
     RESTORE: 'agents:restore',
     GET_LATEST_REVISION: 'agents:getLatestRevision',
+    LIST_HARNESS_OPTIONS: 'agents:listHarnessOptions',
   },
   agentSessions: {
     LIST: 'agentSessions:list',
