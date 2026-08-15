@@ -69,6 +69,7 @@ export default function AgentsSettingsPage() {
         getLatestRevision={getLatestRevision}
         listWorkspaces={() => window.electronAPI.getWorkspaces()}
         listAgentBindings={(workspaceId) => window.electronAPI.listAgentBindings(workspaceId)}
+        listHarnessOptions={(harness) => window.electronAPI.listHarnessOptions(harness)}
       />
       <div className="flex-1 min-h-0 mask-fade-y">
         <ScrollArea className="h-full">

@@ -402,6 +402,7 @@ export const CHANNEL_MAP = {
   retireAgent: invoke(RPC_CHANNELS.agents.RETIRE),
   restoreAgent: invoke(RPC_CHANNELS.agents.RESTORE),
   getLatestAgentRevision: invoke(RPC_CHANNELS.agents.GET_LATEST_REVISION),
+  listHarnessOptions: invoke(RPC_CHANNELS.agents.LIST_HARNESS_OPTIONS),
 
   // Agent Sessions — execution control (workspace-scoped)
   listAgentBindings: invoke(RPC_CHANNELS.agentSessions.LIST),

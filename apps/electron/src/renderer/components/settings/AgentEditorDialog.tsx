@@ -35,6 +35,7 @@ import { useRegisterModal } from '@/context/ModalContext'
 import type { AgentRecord, AgentProfileRevision, CreateAgentInput, UpdateAgentInput, AgentExecutionConfig, AgentBindingDiagnostics } from '@craft-agent/shared/agents'
 import type { ThinkingLevel } from '@craft-agent/shared/agent/thinking-levels'
 import type { PermissionMode } from '@craft-agent/shared/agent/modes'
+import type { HarnessOptions } from '@craft-agent/shared/agent/backend'
 
 export interface AgentEditorDialogProps {
   open: boolean
@@ -49,6 +50,8 @@ export interface AgentEditorDialogProps {
   listWorkspaces: () => Promise<Array<{ id: string; name: string }>>
   /** Per-workspace binding diagnostics for the runtime-binding section */
   listAgentBindings: (workspaceId: string) => Promise<AgentBindingDiagnostics[]>
+  /** Harness option ranges (Issue #17 W7) — null when the harness can't report */
+  listHarnessOptions: (harness: string) => Promise<HarnessOptions | null>
 }
 
 const THINKING_OPTIONS: ThinkingLevel[] = ['off', 'low', 'medium', 'high', 'xhigh', 'max']
@@ -80,6 +83,7 @@ export function AgentEditorDialog({
   getLatestRevision,
   listWorkspaces,
   listAgentBindings,
+  listHarnessOptions,
 }: AgentEditorDialogProps) {
   const { t } = useTranslation()
   const isEdit = agent !== null
@@ -103,6 +107,12 @@ export function AgentEditorDialog({
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [isSaving, setIsSaving] = React.useState(false)
   const [saveError, setSaveError] = React.useState<string | null>(null)
+
+  // --- Harness option ranges (Issue #17 W7) ---
+  // Cache survives dialog close/open (keyed by harness); null is cached too —
+  // a failed fetch is never retried on every open (claude spins up a CLI).
+  const [optionsCache, setOptionsCache] = React.useState<Record<string, HarnessOptions | null>>({})
+  const [isLoadingOptions, setIsLoadingOptions] = React.useState(false)
 
   // --- Runtime binding diagnostics (edit mode only, read-only) ---
   interface BindingRow {
@@ -145,6 +155,30 @@ export function AgentEditorDialog({
       cancelled = true
     }
   }, [open, agent, listWorkspaces, listAgentBindings])
+
+  // Fetch harness option ranges when an external-harness is selected and not
+  // yet cached (Issue #17 W7). Failures are cached as null (fail-soft — the
+  // UI falls back to hardcoded lists) and never surfaced as an error toast.
+  React.useEffect(() => {
+    if (!open || kind !== 'external-harness') return
+    if (optionsCache[harness] !== undefined) return
+    let cancelled = false
+    setIsLoadingOptions(true)
+    listHarnessOptions(harness)
+      .then((options) => {
+        if (!cancelled) setOptionsCache((prev) => ({ ...prev, [harness]: options }))
+      })
+      .catch(() => {
+        // fail-soft: cache the failure so we never retry on every open
+        if (!cancelled) setOptionsCache((prev) => ({ ...prev, [harness]: null }))
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingOptions(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [open, kind, harness, optionsCache, listHarnessOptions])
 
   useRegisterModal(open, onCancel)
 
@@ -218,6 +252,23 @@ export function AgentEditorDialog({
 
   const hasConfigChange =
     executionChanged || systemPromptChanged || thinkingLevelChanged || permissionModeChanged || sourcesChanged
+
+  // --- Option ranges from the selected harness (Issue #17 W7) ---
+  // Every range unions the CURRENT value: a custom value on an old revision
+  // must stay visible and selectable even when the harness doesn't report it.
+  const harnessOptions = kind === 'external-harness' ? (optionsCache[harness] ?? null) : null
+  const harnessModels = harnessOptions?.models?.length
+    ? [...new Set([...harnessOptions.models.map((m) => m.id), ...(model.trim() ? [model.trim()] : [])])].map(
+        (id) => ({ value: id, label: harnessOptions.models.find((m) => m.id === id)?.name ?? id }),
+      )
+    : null
+  const modelThinkingLevels = harnessOptions?.models.find((m) => m.id === model)?.thinkingLevels
+  const thinkingOptions = modelThinkingLevels?.length
+    ? [...new Set([...modelThinkingLevels, thinkingLevel])]
+    : [...THINKING_OPTIONS]
+  const permissionOptions = harnessOptions?.permissionModes?.length
+    ? [...new Set([...harnessOptions.permissionModes, permissionMode as PermissionMode])]
+    : [...PERMISSION_OPTIONS]
 
   // --- Client-side id validation (create mode only; server is authoritative) ---
   const trimmedId = agentId.trim()
@@ -439,12 +490,21 @@ export function AgentEditorDialog({
                       (h) => ({ value: h, label: h }),
                     )}
                   />
-                  <SettingsInput
-                    label={t('settings.agents.model')}
-                    value={model}
-                    onChange={setModel}
-                    placeholder={t('settings.agents.model')}
-                  />
+                  {harnessModels ? (
+                    <SettingsSelect
+                      label={t('settings.agents.model')}
+                      value={model}
+                      onValueChange={setModel}
+                      options={harnessModels}
+                    />
+                  ) : (
+                    <SettingsInput
+                      label={t('settings.agents.model')}
+                      value={model}
+                      onChange={setModel}
+                      placeholder={t('settings.agents.model')}
+                    />
+                  )}
                   {harness === 'claude' && (
                     <SettingsSelect
                       label={t('settings.agents.configMode')}
@@ -452,6 +512,12 @@ export function AgentEditorDialog({
                       onValueChange={setConfigMode}
                       options={CONFIG_MODE_OPTIONS.map((c) => ({ value: c, label: c }))}
                     />
+                  )}
+                  {isLoadingOptions && (
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      {t('common.loading')}
+                    </div>
                   )}
                 </>
               )}
@@ -466,13 +532,13 @@ export function AgentEditorDialog({
                 label={t('settings.agents.thinkingLevel')}
                 value={thinkingLevel}
                 onValueChange={setThinkingLevel}
-                options={THINKING_OPTIONS.map((v) => ({ value: v, label: v }))}
+                options={thinkingOptions.map((v) => ({ value: v, label: v }))}
               />
               <SettingsSelect
                 label={t('settings.agents.permissionMode')}
                 value={permissionMode}
                 onValueChange={setPermissionMode}
-                options={PERMISSION_OPTIONS.map((v) => ({ value: v, label: v }))}
+                options={permissionOptions.map((v) => ({ value: v, label: v }))}
               />
               <SettingsInput
                 label={t('settings.agents.enabledSources')}

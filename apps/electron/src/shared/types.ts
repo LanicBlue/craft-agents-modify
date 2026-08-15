@@ -177,6 +177,8 @@ import type { WorkspaceInfo, Workspace, SessionMetadata, StoredAttachment as Sto
 
 // Agent profile types for ElectronAPI (from @craft-agent/shared/agents)
 import type { AgentRecord, AgentProfileRevision, CreateAgentInput, UpdateAgentInput, AgentBindingDiagnostics } from '@craft-agent/shared/agents';
+// Type-only import (erased at bundle time — never pulls Node/pi code into the renderer)
+import type { HarnessOptions } from '@craft-agent/shared/agent/backend';
 
 // Import protocol types used by ElectronAPI (they come through the `export *` above,
 // but we need them in scope for the interface definition)
@@ -681,6 +683,9 @@ export interface ElectronAPI {
   retireAgent(agentId: string, expectedRecordVersion?: number): Promise<AgentRecord>
   restoreAgent(agentId: string, expectedRecordVersion?: number): Promise<AgentRecord>
   getLatestAgentRevision(agentId: string): Promise<AgentProfileRevision>
+  /** Option ranges for a harness' config surface (Issue #17 W7) — null when
+   * the harness can't report options (fail-soft; renderer falls back). */
+  listHarnessOptions(harness: string): Promise<HarnessOptions | null>
 
   // Agent Sessions — execution control (workspace-scoped)
   listAgentBindings(workspaceId: string): Promise<AgentBindingDiagnostics[]>
