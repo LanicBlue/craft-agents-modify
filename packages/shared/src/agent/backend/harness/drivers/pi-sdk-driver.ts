@@ -23,7 +23,12 @@
  */
 
 import { existsSync } from 'fs';
-import { createAgentSession, SessionManager, type AgentSession, type AgentSessionEvent } from '@earendil-works/pi-coding-agent';
+// Value imports MUST stay lazy (dynamic import()): the pi SDK is ESM-only,
+// and Electron's main bundle is CJS. A static value import compiles to
+// require() in the bundle → ERR_PACKAGE_PATH_NOT_EXPORTED at startup. All
+// other shared-package usages of this SDK are type-only (erased at bundle
+// time) — this driver is the first value consumer.
+import type { AgentSession, AgentSessionEvent } from '@earendil-works/pi-coding-agent';
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import type {
   HarnessDriver,
@@ -32,6 +37,19 @@ import type {
   HarnessCreateArgs,
   HarnessResumeArgs,
 } from '../types.ts';
+
+/** Lazily-loaded pi SDK value surface (types above are compile-time only). */
+type PiSdk = {
+  createAgentSession: typeof import('@earendil-works/pi-coding-agent')['createAgentSession'];
+  SessionManager: typeof import('@earendil-works/pi-coding-agent')['SessionManager'];
+};
+let piSdkPromise: Promise<PiSdk> | null = null;
+async function loadPiSdk(): Promise<PiSdk> {
+  if (!piSdkPromise) {
+    piSdkPromise = import('@earendil-works/pi-coding-agent') as Promise<PiSdk>;
+  }
+  return piSdkPromise;
+}
 
 /** Per-session context (run() only receives the HarnessSession handle). */
 interface SessionContext {
@@ -65,6 +83,7 @@ export class PiSdkDriver implements HarnessDriver {
   /** Eager create: a real SDK session is materialized right away. */
   async create(args: HarnessCreateArgs): Promise<HarnessSession> {
     this.assertLocalInherit(args.configMode);
+    const { createAgentSession } = await loadPiSdk();
     const { session } = await createAgentSession({ cwd: args.workspaceRootPath });
     const sessionObj: HarnessSession = {
       nativeSessionId: session.sessionFile ?? session.sessionId,
@@ -99,6 +118,7 @@ export class PiSdkDriver implements HarnessDriver {
       if (!existsSync(args.nativeSessionId)) {
         throw new Error(`pi session file not found: ${args.nativeSessionId}`);
       }
+      const { createAgentSession, SessionManager } = await loadPiSdk();
       const manager = SessionManager.open(args.nativeSessionId, undefined, args.workspaceRootPath);
       const { session } = await createAgentSession({ cwd: args.workspaceRootPath, sessionManager: manager });
       ctx.session = session;
